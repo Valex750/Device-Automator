@@ -1,0 +1,12 @@
+{
+  "currentTarget": "MyApp",
+  "targets": [
+    {
+      "name": "MyApp",
+      "projectPath": "/ABSOLUTE/PATH/TO/MyApp.xcodeproj",
+      "scheme": "MyApp",
+      "bundleId": "com.example.myapp",
+      "device": "SIMULATOR-UDID"
+    }
+  ]
+}

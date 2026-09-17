@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "device-automator": {
+      "command": "/bin/bash",
+      "args": [
+        "/ABSOLUTE/PATH/TO/Device Automator/scripts/run-mcp.sh"
+      ]
+    }
+  }
+}
