@@ -87,7 +87,7 @@ enum MCPRuntime {
                     "protocolVersion": requested,
                     "capabilities": ["tools": ["listChanged": false]],
                     "serverInfo": ["name": "DeviceAutomator", "version": version],
-                    "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. Use observe hitPoints for taps. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
+                    "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
                 ]
             case "ping":
                 result = [:]
@@ -165,12 +165,12 @@ enum MCPRuntime {
         ),
         tool(
             "observe",
-            "Screenshot + accessibility hierarchy from DeviceInteraction. Reuses the live session when one exists; after end_session, starts a new identifier automatically. Use hitPoints from this tree for taps. applicationState reflects a live hierarchy (not NotRun) when the tree was captured.",
+            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
             "tap",
-            "Tap at coordinates from the latest observe hitPoint.",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels).",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),

@@ -11,8 +11,8 @@ Do this without asking, in one MCP connection:
 1. `get_target` — confirm app, scheme, bundle id, device.
 2. `boot_simulator` if the device is not booted (`list_devices` if you need a UDID).
 3. `install_and_run` after a code change (or once at the start if the binary is stale).
-4. `observe` — read `hierarchyPath`. Tap `hitPoint`s from that tree.
-5. `tap` / `type` / `swipe` / `double_tap` / `press_button` as needed, then `observe` again.
+4. `observe` — **Grep/Read only the `.txt` at `hierarchyPath`**. Ignore `screenshotPath`. Tap `hitPoint`s from matching tree lines.
+5. `tap` / `type` / `swipe` / `double_tap` / `press_button` as needed, then `observe` again. After every gesture, Grep the new `hierarchyPath` before doing anything else.
 6. After another code change, `install_and_run` again, then `observe` / `tap` on the **same** DeviceInteraction session.
 7. Leave the session open. Do not call `end_session` between rebuilds.
 
@@ -28,7 +28,7 @@ Never:
 - Call `mcp_auth` to “fix” a session. Use `reset_session`, then `observe`.
 - Start a second DeviceInteraction session (do not call Xcode `DeviceInteractionStart*` yourself).
 - Treat `applicationState: NotRun` as “need `install_and_run`” when `hierarchyPath` exists.
-- Open `screenshotPath` / `thumbnailScreenshotPath`, or call `screenshot`, to decide what to tap.
+- `Read` `screenshotPath` / `thumbnailScreenshotPath`, or call `screenshot`, because `observe` returned those paths, to see “if the screen loaded,” or to pick a tap target.
 - Modify Device Automator source while driving another app.
 
 If MCP returns **Not connected**, `mcp_auth` is correct: that only reconnects a stdio proxy to the existing daemon. If a tool returns identifier-in-use, session-not-found, or no session key, call `reset_session` then `observe`. Do not wait 20 seconds and do not kill anything.
@@ -124,31 +124,66 @@ install_and_run   when the daemon HAS a live session
 
 | Field | Use |
 | --- | --- |
-| `hierarchyPath` | Source of truth. Read/grep this file. Tap its `hitPoint`s. |
+| `hierarchyPath` | **Only source of truth.** A `.txt` accessibility dump. Grep/Read this file. Quote lines. Tap its `hitPoint`s. |
 | `applicationState` | `Running` when a live tree was captured. Do not reinstall because of `NotRun` if `hierarchyPath` is set. |
-| `screenshotPath` / `thumbnailScreenshotPath` | Ignore unless the tree cannot answer a layout/color question. |
+| `screenshotPath` / `thumbnailScreenshotPath` | **Do not Read.** Returned for Xcode; not part of the default loop. PNG fallback only after the text procedure below has failed. |
 | `logsPath` | Optional device logs. |
 
-Hierarchy lines look like:
+## Text-first procedure (mandatory)
+
+After **every** `observe` / `tap` / `type` / `swipe` / `double_tap`:
+
+1. Take `hierarchyPath` from the tool JSON. It ends in `-hierarchy.txt`.
+2. **Grep** that file (or Read the `.txt` if it is short). Do **not** Read any `.png` in the same step, even if `screenshotPath` is sitting next to it in the JSON.
+3. Search for the control with `label:` / `identifier:` / `Button` / `Selected` / `Disabled`.
+4. Quote the matching line(s). If you will tap, use that line’s `hitPoint: {x, y}` as `tap` `x`/`y` — integers are fine (`364.0` → `364`).
+5. Decide pass/fail from those lines only (label present, `Selected`, `Disabled`, navigation title, alert text). Put the quoted lines in the report.
+
+### Worked example (do this)
+
+`observe` returns:
+
+```json
+{
+  "hierarchyPath": "/var/folders/…/Device Automator FA002CBC-20_05_31_006-hierarchy.txt",
+  "screenshotPath": "/var/folders/…/Device Automator FA002CBC-20_05_31_006-screenshot.png",
+  "thumbnailScreenshotPath": "/var/folders/…/Device Automator FA002CBC-20_05_31_006-thumbnailScreenshot.png",
+  "applicationState": "Running"
+}
+```
+
+Grep the **`.txt` only**:
+
+```
+Grep  path: …/Device Automator FA002CBC-20_05_31_006-hierarchy.txt
+      pattern: label: 'More'|label: 'Workout'|identifier: 'ellipsis
+```
+
+Tree hit:
 
 ```
 Application, pid: 65720, label: 'Lift Planner'
+StaticText, … label: 'Workout', hitPoint: {201.0, 84.0}
 Button, {{346.0, 66.0}, {36.0, 36.0}}, identifier: 'ellipsis.circle', label: 'More', hitPoint: {364.0, 84.0}
 ```
 
-`tap` arguments `x`/`y` are that `hitPoint`, not screenshot pixels.
+Then `tap` `x: 364` `y: 84`. Report those three lines. **Do not** `Read` either PNG.
 
-## Drive from the accessibility tree
+Wrong (what Cursor did on Lift Planner): `Read` `screenshotPath` “to see the UI,” then guess a tap. `observe` always attaches PNGs; that is not permission to open them.
 
-1. After every `observe` / `tap` / `type` / `swipe` / `double_tap`, grep `hierarchyPath` first.
-2. Find the control by `label` / `identifier`. Tap its `hitPoint`.
-3. Confirm behavior from the tree (labels, `Selected`, enabled, presence/absence, navigation). Quote those lines in the report.
-4. Do not open `screenshotPath`. Do not call `screenshot` to drive or verify UI when `observe` works.
-5. If a PNG and the tree disagree, the tree wins.
+### PNG fallback (only after text failed)
 
-**Screenshot exception.** Open a PNG only when the tree cannot answer the check: layout, spacing, or color; a missing accessibility label; or a visual-only issue the user asked about. Say why the tree was insufficient. Still tap `hitPoint`s from the tree.
+Text has **failed** only when you already Grepped the `.txt` and still cannot answer the check because:
 
-`screenshot` is a CoreDevice connectivity check for runtimes that lack Device Interaction, not feature verification.
+- no node has a `label` / `identifier` for the control (missing accessibility), or
+- the question is color, spacing, overlap, or clipping — nothing in the dump encodes it, or
+- the user asked about a visual-only regression.
+
+Then you may `Read` `screenshotPath`. In the same message, state: the grep pattern, that it missed, and why pixels are required. Taps still use `hitPoint`s from the tree if any node exists. If the PNG and the tree disagree, **the tree wins** — report the tree lines, not the image.
+
+`layout` / “see if it loaded” / “confirm the screen” are **not** failures of the text. A `NavigationBar` identifier, `StaticText` label, or `Application, pid:` line already answers those.
+
+The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that lack Device Interaction. Do not call it while `observe` works.
 
 ## Tools (19)
 
@@ -246,7 +281,7 @@ Follow in order. Step 6 needs a human in a GUI and cannot be scripted.
    list_devices
    screenshot
    ```
-   Then `observe` (dialog from step 6 on first use). Confirm `hierarchyPath` is a live tree (`Application, pid: …`). Drive with `hitPoint`s.
+   Then `observe` (dialog from step 6 on first use). Grep the `.txt` at `hierarchyPath` for `Application, pid:` and the screen’s labels. Drive with those `hitPoint`s. Do not `Read` `screenshotPath`.
 
 If the app needs a paired watch:
 
@@ -320,20 +355,24 @@ description: Full plan-implement-run-verify-fix loop for developing a feature or
 
 # Feature development cycle (plan → build → verify → fix)
 
-Use Device Automator MCP tools. Follow that project’s README data flow. The work is not done until the accessibility tree shows the change working.
+Use Device Automator MCP tools. Follow Device Automator’s README **Text-first procedure**. The work is not done until quoted `hierarchyPath` lines show the change working.
 
 ## The cycle
 
 1. **Plan.** Read existing code. Call `get_target` first.
 2. **Implement** in this app’s source. Never modify Device Automator.
 3. **Build and launch.** `install_and_run`. If a DeviceInteraction session is already live, this must not start a second one.
-4. **Verify.** `observe`, then `tap` / `type` / `swipe` using `hitPoint`s from `hierarchyPath`. Quote tree lines. Do not open `screenshotPath` unless the tree cannot answer the check.
-5. **Fix and re-verify.** Change this app, `install_and_run` again, `observe` / `tap` on the same session. Cap at 5 fix attempts. Same symptom twice: stop.
+4. **Verify (text only).** `observe`. Grep/Read **only** the `.txt` at `hierarchyPath`. Find `label:` / `identifier:`. `tap` that line’s `hitPoint`. Quote the lines. Do **not** `Read` `screenshotPath` or `thumbnailScreenshotPath` because `observe` returned them. Do **not** call the `screenshot` tool.
+5. **Fix and re-verify.** Change this app, `install_and_run` again, then step 4 on the same session. Cap at 5 fix attempts. Same symptom twice: stop.
 6. **Close out.** Leave the session open. Do not `end_session` between rebuilds. If wedged: `reset_session` then `observe`. Never kill DeviceAutomator.
+
+## PNG fallback (only after text failed)
+
+Grep the `.txt` first. Text has failed only if that grep cannot answer because the node has no `label`/`identifier`, or the check is color/overlap/clipping with no tree attribute, or the user asked about a visual-only regression. Then you may Read the PNG; say which grep missed and why. Taps still use `hitPoint`s. Tree beats PNG. “Did the screen load?” is answered by `Application, pid:` / `NavigationBar` / `StaticText` in the dump — not by opening the screenshot.
 
 ## Rules
 
-- Coordinates come only from `observe` `hitPoint`s.
+- Coordinates come only from tree `hitPoint`s, never from pixels.
 - `applicationState` plus a live `hierarchyPath` means the app is running; do not reinstall because of `NotRun`.
 - First `observe`/`tap` may need a human to click Xcode’s Allow dialog — stop and ask; do not retry blindly.
 - `mcp_auth` only when MCP is Not connected, not to recover a session.
@@ -346,20 +385,34 @@ Create `.claude/skills/verify-in-simulator/SKILL.md` **inside the app being driv
 ````markdown
 ---
 name: verify-in-simulator
-description: Verify that a UI-visible change actually works by running the app in the iOS Simulator via Device Automator (build, launch, observe, tap), using the accessibility tree as the source of truth rather than screenshots. Use after implementing or fixing a UI-visible change, when asked to confirm/test/verify a feature works, or before considering such a change done.
+description: Verify that a UI-visible change actually works by running the app in the iOS Simulator via Device Automator (build, launch, observe, tap), using the accessibility tree .txt dump as the source of truth. Screenshots are a last resort after a grep of that dump cannot answer the check. Use after implementing or fixing a UI-visible change, when asked to confirm/test/verify a feature works, or before considering such a change done.
 ---
 
 # Verify in Simulator
 
-Plan/implement elsewhere. This skill only proves the UI works.
+Plan/implement elsewhere. This skill only proves the UI works, from **textual** hierarchy data.
+
+## After every observe / tap / type / swipe
+
+1. `observe` (or the gesture tool) returns JSON with `hierarchyPath` (a `-hierarchy.txt`) and `screenshotPath` (a PNG).
+2. **Grep or Read the `.txt` only.** Do not `Read` `screenshotPath` or `thumbnailScreenshotPath` in this step. `observe` always attaches PNGs; that is not permission to open them.
+3. Find the control: `label: '…'` / `identifier: '…'` / `Button` / `Selected` / `Disabled`.
+4. Quote the matching line. `tap` its `hitPoint: {x, y}` (`364.0` → `x: 364`, `y: 84`).
+5. Pass/fail from those lines. Put the quotes in the report.
+
+Example: Grep `label: 'More'|label: 'Workout'` on the `.txt`, then `tap` `364, 84` from `label: 'More', hitPoint: {364.0, 84.0}`. Do not open the PNG “to see the UI.”
+
+## PNG fallback (only after text failed)
+
+Text failed only if that grep cannot answer because: no `label`/`identifier` for the control; or the check is color/overlap/clipping with no tree field; or the user asked about a visual-only regression. Then Read the PNG and say which grep missed. Taps still use `hitPoint`s. Tree wins if they disagree. “Did it load?” / “what screen is this?” are answered by `Application, pid:` and `NavigationBar` / `StaticText` in the dump.
+
+## Steps
 
 1. `get_target`
 2. `install_and_run` (must not start a second DeviceInteraction session if one is live)
-3. `observe` → drive with `hitPoint`s from `hierarchyPath` → `observe` after each gesture
+3. Text-first loop above, including edge cases (empty/error states)
 4. On failure: fix this app, `install_and_run`, repeat step 3. Cap 5 attempts.
-5. Leave the session open. Wedged: `reset_session` then `observe`. Never kill DeviceAutomator.
-
-Tree first. Do not Read `screenshotPath` or call `screenshot` unless the tree cannot answer the check. If they disagree, the tree wins.
+5. Leave the session open. Wedged: `reset_session` then `observe`. Never kill DeviceAutomator. Never call the `screenshot` tool while `observe` works.
 ````
 
 Standing reminder for the driven app’s `CLAUDE.md`:
@@ -367,7 +420,7 @@ Standing reminder for the driven app’s `CLAUDE.md`:
 ```markdown
 ## Verifying UI changes
 
-Before considering a UI-visible change done, verify it in the iOS Simulator with Device Automator: `get_target` → `install_and_run` → `observe` → tap `hitPoint`s from `hierarchyPath`. Leave the DeviceInteraction session open across rebuilds. If the session is wedged, `reset_session` then `observe`. Do not kill DeviceAutomator. Do not open screenshots when the tree has the answer.
+Before considering a UI-visible change done, verify it with Device Automator from the **text** dump: `get_target` → `install_and_run` → `observe` → Grep the `.txt` at `hierarchyPath` → tap that line’s `hitPoint`. Do not `Read` `screenshotPath` unless that grep cannot answer (missing label, or color/overlap with no tree field). Leave the DeviceInteraction session open across rebuilds. Wedged: `reset_session` then `observe`. Do not kill DeviceAutomator.
 ```
 
 ## Recovery (unattended)
@@ -377,6 +430,7 @@ Before considering a UI-visible change done, verify it in the iOS Simulator with
 | MCP **Not connected** | `mcp_auth`. New proxy attaches to the existing daemon. |
 | identifier in use / recently used / `IDEStatefulActionError` / no session key / session not found | `reset_session`, then `observe`. Do not kill. Do not wait for a human cooldown. |
 | `applicationState: NotRun` but `hierarchyPath` is a live tree | Trust the tree. Do not `install_and_run` for that reason. |
+| Tempted to open `screenshotPath` to “see the UI” | Grep the `.txt` at `hierarchyPath` instead. PNG only after that grep cannot answer. |
 | `install_and_run` mentions xcodebuild fallback | Session is still the live one. Continue with `observe`. |
 | Allow dialog / no iOS 27 runtime / empty signing identities | Stop and ask the user. |
 | Several `DeviceAutomator` PIDs, one `--daemon` | Expected. Do not kill. |
