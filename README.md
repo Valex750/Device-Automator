@@ -44,6 +44,8 @@ The MCP launcher installs a re-signed copy to:
 
 `~/Library/Application Support/DeviceAutomator/bin/DeviceAutomator`
 
+It re-signs with a real certificate (`SIGNING_IDENTITY` in `scripts/run-mcp.sh`), not ad-hoc — see [Signing](#signing) below.
+
 ## Run
 
 The server speaks MCP on stdin/stdout. Agents should launch it through `scripts/run-mcp.sh`.
@@ -110,6 +112,28 @@ After reload, the agent can:
 3. `observe` for the accessibility tree and `hitPoint`s
 4. `tap` / `type` / `swipe` / `press_button`
 5. `end_session` when the flow is done
+
+## Troubleshooting
+
+### "Xcode started a device session but returned no session key" / tabIdentifier errors
+
+Xcode's `XcodeListWindows` returns an unquoted, human-readable line like `* tabIdentifier: windowtab-12ta0uNPy1, workspacePath: /path`, not JSON — and several Xcode MCP tools (`XcodeOpenWorkspace`, `XcodeListWorkspaces`, `DeviceInteractionStartWorkspaceSession`) can fail at the IDE level (e.g. "Tool 'X' is not enabled", or an `IDEKit.IDEStatefulActionError`) by returning a normal, non-throwing result rather than a JSON-RPC error. Earlier builds mis-parsed the unquoted format and also treated any non-throwing result as success, which silently skipped the correct fallback tool (`XcodeListWindows`, then `DeviceInteractionStartSession`) and sent Xcode a stale or wrong tab identifier. Both are fixed: `InteractionEngine` now parses the unquoted format and explicitly checks for "not enabled" / missing-session-key responses before falling through.
+
+### "This session identifier is currently in use or was recently used"
+
+Xcode enforces a short cooldown before a `sessionIdentifier` can be reused, even across process restarts. Device Automator used to send the fixed literal `"Device Automator"`, so restarting the process quickly (e.g. right after installing a new build) could collide with the previous process's identifier. It's now scoped per process (`"Device Automator-<pid>"`).
+
+### Confusing or mismatched error text from Xcode MCP calls
+
+The Xcode MCP client didn't check that a response's JSON-RPC `id` matched the request it was replying to, so a late response to an earlier call could be mistaken for the reply to a different, later call — showing up as unrelated error text. Responses are now matched by `id`, discarding anything else.
+
+### "Allow 'DeviceAutomator' to access Xcode?" reappearing often
+
+This is Xcode's own external-agent consent gate (Settings → Intelligence → Model Context Protocol), separate from macOS's classic Automation/TCC prompt, and separate from "Allow External Agents to Use Xcode Tools" (which just permits connections at all — it can be `Always` and you'll still see this dialog). It appears to be scoped to the running process instance rather than to the binary's code signature, so it can reappear whenever the subprocess restarts — which happens on every rebuild-and-reinstall cycle during active development on Device Automator itself. We didn't find a setting or command-line switch to pre-authorize it once per machine. If Xcode's Agent Activity popover (the sparkle icon in the main window's toolbar) accumulates stale/`Inactive` entries from repeated restarts, click **Clear** there.
+
+### Signing
+
+`scripts/run-mcp.sh` re-signs the installed copy with a real certificate (`SIGNING_IDENTITY`, set near the top of the script) instead of ad-hoc (`--sign -`). Ad-hoc signatures get a new hash on every rebuild, which is worse practice in general and gives macOS/Xcode no stable identity to recognize across restarts. Pick any local codesigning identity from `security find-identity -v -p codesigning` and set `SIGNING_IDENTITY` to its name — it does not need to match the identity used to build the app you're driving.
 
 ## Tools
 

@@ -6,6 +6,11 @@ final class InteractionEngine {
     private var client: XcodeMCPClient?
     private(set) var sessionKey: String?
     private var workspaceID: String?
+    // Xcode's IDEKit refuses to reuse a session identifier for a short cooldown after
+    // it was last used, even across process restarts. A fixed literal here would collide
+    // with the previous process's identifier whenever DeviceAutomator restarts quickly
+    // (e.g. after picking up a new build), so scope it to this process.
+    private let sessionIdentifier = "Device Automator-\(ProcessInfo.processInfo.processIdentifier)"
 
     func endSession() {
         if let sessionKey, let client {
@@ -111,7 +116,7 @@ final class InteractionEngine {
         workspaceID = try resolveWorkspace(client: client, target: target)
 
         var startArgs: [String: Any] = [
-            "sessionIdentifier": "Device Automator",
+            "sessionIdentifier": sessionIdentifier,
         ]
         if let workspaceID {
             startArgs["workspaceIdentifier"] = workspaceID
@@ -121,11 +126,19 @@ final class InteractionEngine {
             startArgs["deviceIdentifier"] = device
         }
 
-        let started: Any
+        var started: Any
         do {
             started = try client.callTool("DeviceInteractionStartWorkspaceSession", arguments: startArgs, timeout: 120)
         } catch {
             started = try client.callTool("DeviceInteractionStartSession", arguments: startArgs, timeout: 120)
+        }
+        // DeviceInteractionStartWorkspaceSession can fail at Xcode's IDE level (e.g. an
+        // IDEStatefulActionError) without throwing at the JSON-RPC layer, so a missing
+        // session key on the first attempt must also fall back to the plain (non-workspace)
+        // session-start tool rather than only falling back on a Swift-level throw.
+        if MCPResult.sessionKey(in: started) == nil,
+           let fallback = try? client.callTool("DeviceInteractionStartSession", arguments: startArgs, timeout: 120) {
+            started = fallback
         }
         guard let key = MCPResult.sessionKey(in: started) else {
             throw DeviceAutomatorError.commandFailed(
@@ -149,14 +162,18 @@ final class InteractionEngine {
                 "XcodeOpenWorkspace",
                 arguments: ["path": path],
                 timeout: 60
-            ) {
-                if let id = MCPResult.firstString(in: opened, keys: ["workspaceIdentifier", "tabIdentifier", "identifier"]) {
-                    return id
-                }
+            ), !MCPResult.isUnavailable(opened),
+               let id = MCPResult.firstString(in: opened, keys: ["workspaceIdentifier", "tabIdentifier", "identifier"]) {
+                return id
             }
-            let listed = (try? client.callTool("XcodeListWorkspaces", timeout: 30))
-                ?? (try? client.callTool("XcodeListWindows", timeout: 30))
-            if let listed,
+            // XcodeListWorkspaces may not be an enabled tool: it then returns a normal
+            // (non-throwing) "not enabled" result, which would otherwise short-circuit
+            // this "??" fallback and prevent XcodeListWindows from ever being tried.
+            var listed = try? client.callTool("XcodeListWorkspaces", timeout: 30)
+            if listed == nil || MCPResult.isUnavailable(listed!) {
+                listed = try? client.callTool("XcodeListWindows", timeout: 30)
+            }
+            if let listed, !MCPResult.isUnavailable(listed),
                let id = MCPResult.matchingIdentifier(in: listed, pathHint: path) {
                 return id
             }
@@ -240,6 +257,17 @@ enum MCPResult {
         return String(describing: result)
     }
 
+    /// Xcode reports an unsupported/disabled tool as a normal (non-throwing) result,
+    /// e.g. {"isError": true, "content": [{"type": "text", "text": "Tool 'X' is not enabled."}]},
+    /// so callers must check this explicitly rather than relying on `callTool` throwing.
+    static func isUnavailable(_ result: Any) -> Bool {
+        if let dict = result as? [String: Any], let isError = dict["isError"] as? Bool, isError {
+            return true
+        }
+        let text = (try? flatten(result)) ?? ""
+        return text.isEmpty || text.localizedCaseInsensitiveContains("is not enabled")
+    }
+
     static func sessionKey(in result: Any) -> String? {
         firstString(in: result, keys: ["interactionSessionKey", "interactSessionKey", "sessionKey", "key"])
     }
@@ -270,6 +298,17 @@ enum MCPResult {
                     let matched = String(text[range])
                     if let valueRange = matched.range(of: "\"[^\"]+\"$", options: .regularExpression) {
                         return String(matched[valueRange]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    }
+                }
+                // Xcode's XcodeListWindows returns a human-readable message, e.g.
+                // "* tabIdentifier: windowtab-12ta0uNPy1, workspacePath: /path" — no
+                // quotes around the key or value, so fall back to a plain "key: value" match.
+                if let range = text.range(of: "\\b\(key)\\s*:\\s*([^,\\n]+)", options: .regularExpression) {
+                    let matched = String(text[range])
+                    if let colonRange = matched.range(of: ":") {
+                        let value = matched[matched.index(after: colonRange.lowerBound)...]
+                        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { return trimmed }
                     }
                 }
             }

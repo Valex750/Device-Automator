@@ -77,7 +77,7 @@ final class XcodeMCPClient {
             payload["params"] = params
         }
         try write(payload)
-        let response = try readObject(timeout: timeout)
+        let response = try readObject(matchingID: id, timeout: timeout)
         if let error = response["error"] as? [String: Any] {
             let message = error["message"] as? String ?? String(describing: error)
             throw DeviceAutomatorError.commandFailed("Xcode MCP \(method) failed: \(message)")
@@ -98,11 +98,18 @@ final class XcodeMCPClient {
             try stdinHandle.write(contentsOf: JSONRPC.encode(payload, framing: .ndjson))
     }
 
-    private func readObject(timeout: TimeInterval) throws -> [String: Any] {
+    // Reads responses until one whose "id" matches this request is found, discarding any
+    // stray/out-of-order message in between (e.g. a late response to an earlier call, or a
+    // server-initiated notification) rather than mistaking it for this request's reply.
+    private func readObject(matchingID id: Int, timeout: TimeInterval) throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let line = JSONRPC.extractNDJSON(from: &buffer) {
-                return try JSONValue.object(from: line)
+                let object = try JSONValue.object(from: line)
+                if let responseID = object["id"] as? Int, responseID != id {
+                    continue
+                }
+                return object
             }
             var bytes = [UInt8](repeating: 0, count: 65_536)
             let count = Darwin.read(stdoutHandle!.fileDescriptor, &bytes, bytes.count)
