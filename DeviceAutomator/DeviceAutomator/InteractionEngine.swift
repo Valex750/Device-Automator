@@ -1,28 +1,79 @@
+import Darwin
 import Foundation
 
 /// Apple DeviceInteraction session plus xcodebuild/devicectl fallbacks.
 /// Never writes into a target app's source tree.
+///
+/// One InteractionEngine lives in the Device Automator daemon. MCP stdio
+/// processes attach to that daemon instead of each opening their own Xcode session.
 final class InteractionEngine {
     private var client: XcodeMCPClient?
     private(set) var sessionKey: String?
     private var workspaceID: String?
-    // Xcode's IDEKit refuses to reuse a session identifier for a short cooldown after
-    // it was last used, even across process restarts. A fixed literal here would collide
-    // with the previous process's identifier whenever DeviceAutomator restarts quickly
-    // (e.g. after picking up a new build), so scope it to this process.
-    private let sessionIdentifier = "Device Automator-\(ProcessInfo.processInfo.processIdentifier)"
+    private var currentIdentifier: String?
 
-    func endSession() {
-        if let sessionKey, let client {
-            _ = try? client.callTool(
-                "DeviceInteractionEndSession",
-                arguments: ["interactionSessionKey": sessionKey],
-                timeout: 30
-            )
+    var hasLiveSession: Bool { sessionKey != nil && client?.isConnected == true }
+
+    func endSession(disconnectClient: Bool = false) {
+        if let client {
+            if let sessionKey {
+                _ = try? client.callTool(
+                    "DeviceInteractionEndSession",
+                    arguments: ["interactionSessionKey": sessionKey],
+                    timeout: 30
+                )
+            }
+            if let currentIdentifier, currentIdentifier != sessionKey {
+                _ = try? client.callTool(
+                    "DeviceInteractionEndSession",
+                    arguments: ["interactionSessionKey": currentIdentifier],
+                    timeout: 30
+                )
+            }
+        }
+        if let currentIdentifier {
+            SessionIdentity.remember(currentIdentifier)
         }
         sessionKey = nil
-        client?.disconnect()
-        client = nil
+        currentIdentifier = nil
+        workspaceID = nil
+        PersistedSessionStore.clear()
+        if disconnectClient {
+            client?.disconnect()
+            client = nil
+        }
+    }
+
+    func resetSession() {
+        endSession(disconnectClient: false)
+    }
+
+    /// If a previous daemon died while Xcode still held a session, release it
+    /// so the next observe can start a *new* identifier immediately.
+    func reclaimOrphanedSessionIfNeeded() {
+        guard let persisted = PersistedSessionStore.load() else { return }
+        if ProcessLiveness.isAlive(persisted.ownerPID), persisted.ownerPID != getpid() {
+            return
+        }
+        EngineLog.write("session: reclaiming orphan '\(persisted.identifier)'")
+        SessionIdentity.remember(persisted.identifier)
+        if let client = try? connected() {
+            _ = try? client.callTool(
+                "DeviceInteractionEndSession",
+                arguments: ["interactionSessionKey": persisted.key],
+                timeout: 30
+            )
+            if persisted.key != persisted.identifier {
+                _ = try? client.callTool(
+                    "DeviceInteractionEndSession",
+                    arguments: ["interactionSessionKey": persisted.identifier],
+                    timeout: 30
+                )
+            }
+        }
+        PersistedSessionStore.clear()
+        sessionKey = nil
+        currentIdentifier = nil
         workspaceID = nil
     }
 
@@ -46,28 +97,77 @@ final class InteractionEngine {
     }
 
     func installAndRun(target: AppTarget, device: String, config: Config) throws -> String {
-        do {
-            try ensureSession(target: target, device: device)
-            guard let sessionKey else {
-                throw DeviceAutomatorError.commandFailed("No DeviceInteraction session key.")
+        // A live DeviceInteraction session must not be replaced. Rebuild through
+        // that session, or via xcodebuild + simctl/devicectl, then keep observe/tap on it.
+        if hasLiveSession {
+            do {
+                return try deviceInteractionInstall(target: target, device: device)
+            } catch {
+                let fallback = try buildInstallLaunch(target: target, device: device, config: config)
+                return "Apple DeviceInteraction install failed on the existing session (\(error.localizedDescription)). Rebuilt with xcodebuild/devicectl without opening a second session.\n\(fallback)"
             }
-            let arguments = try appleArguments(target: target, device: device, extra: [
-                "interactionSessionKey": sessionKey,
-            ])
-            let result = try connected().callTool(
-                "DeviceInteractionInstallAndRun",
-                arguments: arguments,
-                timeout: 300
-            )
-            return try MCPResult.flatten(result)
-        } catch {
-            let fallback = try buildInstallLaunch(target: target, device: device, config: config)
-            return "Apple DeviceInteraction install failed (\(error.localizedDescription)). Fell back to xcodebuild/devicectl.\n\(fallback)"
         }
+        return try buildInstallLaunch(target: target, device: device, config: config)
     }
 
     func synthesize(target: AppTarget, device: String, command: String) throws -> String {
         try ensureSession(target: target, device: device)
+        do {
+            return try ObserveNormalization.rewrite(try sendSynthesize(target: target, device: device, command: command))
+        } catch {
+            let text = error.localizedDescription
+            let kind = SessionFailure.classify(text)
+            guard kind == .sessionNotFound || kind == .identifierInUse || kind == .statefulAction else {
+                throw error
+            }
+            EngineLog.write("session: synthesize recovered from \(kind)")
+            endSession(disconnectClient: false)
+            try ensureSession(target: target, device: device)
+            return try ObserveNormalization.rewrite(try sendSynthesize(target: target, device: device, command: command))
+        }
+    }
+
+    func setOrientation(device: String, orientation: String) throws -> String {
+        let result = try ProcessRunner.xcrun([
+            "devicectl", "device", "orientation", "set",
+            "--device", device,
+            orientation,
+        ])
+        if result.succeeded {
+            return result.stdout.isEmpty ? "Set orientation to \(orientation)." : result.stdout
+        }
+        try result.throwIfFailed(label: "devicectl orientation")
+        return "Set orientation to \(orientation)."
+    }
+
+    func launchInstalled(target: AppTarget, device: String) throws -> String {
+        guard let bundleId = target.bundleId else {
+            throw DeviceAutomatorError.missingArgument("bundle_id")
+        }
+        try launchApp(bundleId: bundleId, device: device)
+        return "Launched \(bundleId)."
+    }
+
+    private func deviceInteractionInstall(target: AppTarget, device: String) throws -> String {
+        guard let sessionKey else {
+            throw DeviceAutomatorError.commandFailed("No DeviceInteraction session key.")
+        }
+        let arguments = try appleArguments(target: target, device: device, extra: [
+            "interactionSessionKey": sessionKey,
+        ])
+        let result = try connected().callTool(
+            "DeviceInteractionInstallAndRun",
+            arguments: arguments,
+            timeout: 300
+        )
+        let text = try MCPResult.flatten(result)
+        if let dict = result as? [String: Any], dict["isError"] as? Bool == true {
+            throw DeviceAutomatorError.commandFailed(text)
+        }
+        return text
+    }
+
+    private func sendSynthesize(target: AppTarget, device: String, command: String) throws -> String {
         guard let sessionKey else {
             throw DeviceAutomatorError.commandFailed("No DeviceInteraction session key.")
         }
@@ -80,43 +180,76 @@ final class InteractionEngine {
             arguments: arguments,
             timeout: 90
         )
-        return try MCPResult.flatten(result)
-    }
-
-    func setOrientation(device: String, orientation: String) throws -> String {
-        let result = try ProcessRunner.xcrun([
-            "devicectl", "device", "orientation", "set",
-            "--device", device,
-            orientation,
-        ])
-        if result.succeeded {
-            return result.stdout.isEmpty ? "Set orientation to \(orientation)." : result.stdout
+        let text = try MCPResult.flatten(result)
+        if let dict = result as? [String: Any], dict["isError"] as? Bool == true {
+            throw DeviceAutomatorError.commandFailed(text)
         }
-        // Fall through to DeviceInteraction command if CoreDevice rejects it.
-        try result.throwIfFailed(label: "devicectl orientation")
-        return "Set orientation to \(orientation)."
-    }
-
-    func launchInstalled(target: AppTarget, device: String) throws -> String {
-        guard let bundleId = target.bundleId else {
-            throw DeviceAutomatorError.missingArgument("bundle_id")
+        let kind = SessionFailure.classify(text)
+        if kind == .sessionNotFound || kind == .identifierInUse {
+            throw DeviceAutomatorError.commandFailed(text)
         }
-        let result = try ProcessRunner.xcrun([
-            "devicectl", "device", "process", "launch",
-            "--device", device,
-            bundleId,
-        ])
-        try result.throwIfFailed(label: "devicectl process launch")
-        return result.stdout.isEmpty ? "Launched \(bundleId)." : result.stdout
+        return text
     }
 
     private func ensureSession(target: AppTarget, device: String) throws {
-        if sessionKey != nil, client?.isConnected == true { return }
+        if hasLiveSession { return }
         let client = try connected()
         workspaceID = try resolveWorkspace(client: client, target: target)
 
+        var used = Set<String>()
+        var lastError = "Could not start a DeviceInteraction session."
+        let delays: [useconds_t] = [0, 400_000, 800_000, 1_500_000, 2_500_000, 4_000_000]
+        for (attempt, delay) in delays.enumerated() {
+            if delay > 0 {
+                EngineLog.write("session: retrying with a new identifier (attempt \(attempt + 1)/\(delays.count))")
+                usleep(delay)
+            }
+            let identifier = SessionIdentity.mint(excluding: used)
+            used.insert(identifier)
+            do {
+                switch try startOnce(client: client, target: target, device: device, identifier: identifier) {
+                case .started(let key):
+                    sessionKey = key
+                    currentIdentifier = identifier
+                    persist(identifier: identifier, key: key)
+                    EngineLog.write("session: ready id='\(identifier)' key='\(key)'")
+                    return
+                case .burned(let text):
+                    lastError = text
+                    bestEffortEnd(client: client, identifier: identifier)
+                    EngineLog.write("session: identifier '\(identifier)' burned: \(text)")
+                }
+            } catch {
+                lastError = error.localizedDescription
+                bestEffortEnd(client: client, identifier: identifier)
+                if !SessionFailure.isRecoverableStartFailure(lastError) {
+                    throw error
+                }
+                EngineLog.write("session: start failed '\(identifier)': \(lastError)")
+            }
+        }
+        throw DeviceAutomatorError.commandFailed(
+            "Could not open a DeviceInteraction session after \(delays.count) attempts with new identifiers (Xcode cooldown). Last error: \(lastError)"
+        )
+    }
+
+    private enum StartResult {
+        case started(key: String)
+        case burned(String)
+    }
+
+    /// One Xcode start per identifier. Never call a second start tool on an id
+    /// that may already be live or in cooldown.
+    private func startOnce(
+        client: XcodeMCPClient,
+        target: AppTarget,
+        device: String,
+        identifier: String
+    ) throws -> StartResult {
+        _ = target
+        SessionIdentity.remember(identifier)
         var startArgs: [String: Any] = [
-            "sessionIdentifier": sessionIdentifier,
+            "sessionIdentifier": identifier,
         ]
         if let workspaceID {
             startArgs["workspaceIdentifier"] = workspaceID
@@ -126,26 +259,85 @@ final class InteractionEngine {
             startArgs["deviceIdentifier"] = device
         }
 
-        var started: Any
+        var workspaceUnavailable = false
         do {
-            started = try client.callTool("DeviceInteractionStartWorkspaceSession", arguments: startArgs, timeout: 120)
+            let workspace = try client.callTool("DeviceInteractionStartWorkspaceSession", arguments: startArgs, timeout: 120)
+            if MCPResult.isUnavailable(workspace) {
+                workspaceUnavailable = true
+            } else {
+                return interpretStart(workspace, identifier: identifier)
+            }
         } catch {
-            started = try client.callTool("DeviceInteractionStartSession", arguments: startArgs, timeout: 120)
+            let text = error.localizedDescription
+            if SessionFailure.classify(text) == .identifierInUse {
+                return .burned(text)
+            }
+            workspaceUnavailable = true
+            EngineLog.write("session: workspace start threw, trying StartSession: \(text)")
         }
-        // DeviceInteractionStartWorkspaceSession can fail at Xcode's IDE level (e.g. an
-        // IDEStatefulActionError) without throwing at the JSON-RPC layer, so a missing
-        // session key on the first attempt must also fall back to the plain (non-workspace)
-        // session-start tool rather than only falling back on a Swift-level throw.
-        if MCPResult.sessionKey(in: started) == nil,
-           let fallback = try? client.callTool("DeviceInteractionStartSession", arguments: startArgs, timeout: 120) {
-            started = fallback
+
+        guard workspaceUnavailable else {
+            return .burned("Workspace session start returned no usable key.")
         }
-        guard let key = MCPResult.sessionKey(in: started) else {
-            throw DeviceAutomatorError.commandFailed(
-                "Xcode started a device session but returned no session key. Open Lift Planner in Xcode, enable Intelligence → Allow external agents, then retry.\n\(try MCPResult.flatten(started))"
+
+        do {
+            let started = try client.callTool("DeviceInteractionStartSession", arguments: startArgs, timeout: 120)
+            if MCPResult.isUnavailable(started) {
+                return .burned(try MCPResult.flatten(started))
+            }
+            return interpretStart(started, identifier: identifier)
+        } catch {
+            let text = error.localizedDescription
+            if SessionFailure.isRecoverableStartFailure(text) {
+                return .burned(text)
+            }
+            throw error
+        }
+    }
+
+    private func interpretStart(_ started: Any, identifier: String) -> StartResult {
+        let text = (try? MCPResult.flatten(started)) ?? String(describing: started)
+        if let key = MCPResult.sessionKey(in: started) {
+            return .started(key: key)
+        }
+        switch SessionFailure.classify(text) {
+        case .identifierInUse, .sessionNotFound, .statefulAction:
+            return .burned(text)
+        case .missingKey, .other:
+            // Apple's own skills pass the human-friendly sessionIdentifier as the
+            // later interactionSessionKey. Prefer that over leaving an orphan.
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .started(key: identifier)
+            }
+            if SessionFailure.classify(text) == .other, text.count < 400, !text.localizedCaseInsensitiveContains("error") {
+                return .started(key: identifier)
+            }
+            if text.localizedCaseInsensitiveContains("error") || text.localizedCaseInsensitiveContains("failed") {
+                return .burned(text)
+            }
+            return .started(key: identifier)
+        }
+    }
+
+    private func persist(identifier: String, key: String) {
+        PersistedSessionStore.save(
+            PersistedSession(
+                identifier: identifier,
+                key: key,
+                workspaceID: workspaceID,
+                ownerPID: getpid(),
+                updatedAt: Date().timeIntervalSince1970
             )
-        }
-        sessionKey = key
+        )
+    }
+
+    private func bestEffortEnd(client: XcodeMCPClient, identifier: String) {
+        _ = try? client.callTool(
+            "DeviceInteractionEndSession",
+            arguments: ["interactionSessionKey": identifier],
+            timeout: 15
+        )
+        SessionIdentity.remember(identifier)
     }
 
     private func connected() throws -> XcodeMCPClient {
@@ -166,9 +358,6 @@ final class InteractionEngine {
                let id = MCPResult.firstString(in: opened, keys: ["workspaceIdentifier", "tabIdentifier", "identifier"]) {
                 return id
             }
-            // XcodeListWorkspaces may not be an enabled tool: it then returns a normal
-            // (non-throwing) "not enabled" result, which would otherwise short-circuit
-            // this "??" fallback and prevent XcodeListWindows from ever being tried.
             var listed = try? client.callTool("XcodeListWorkspaces", timeout: 30)
             if listed == nil || MCPResult.isUnavailable(listed!) {
                 listed = try? client.callTool("XcodeListWindows", timeout: 30)
@@ -213,19 +402,33 @@ final class InteractionEngine {
 
         let app = try Self.findApp(in: derived)
         try TargetGuard.ensureWriteIsOutsideTargets(destination: app, config: config)
+        try installApp(app: app, device: device)
+        try launchApp(bundleId: bundleId, device: device)
+        return "Built \(scheme), installed \(app.lastPathComponent), launched \(bundleId) on \(device)."
+    }
+
+    private func installApp(app: URL, device: String) throws {
         let install = try ProcessRunner.xcrun([
             "devicectl", "device", "install", "app",
             "--device", device,
             app.path,
         ])
+        if install.succeeded { return }
+        let sim = try ProcessRunner.xcrun(["simctl", "install", device, app.path])
+        if sim.succeeded { return }
         try install.throwIfFailed(label: "devicectl install app")
+    }
+
+    private func launchApp(bundleId: String, device: String) throws {
         let launch = try ProcessRunner.xcrun([
             "devicectl", "device", "process", "launch",
             "--device", device,
             bundleId,
         ])
+        if launch.succeeded { return }
+        let sim = try ProcessRunner.xcrun(["simctl", "launch", device, bundleId])
+        if sim.succeeded { return }
         try launch.throwIfFailed(label: "devicectl process launch")
-        return "Built \(scheme), installed \(app.lastPathComponent), launched \(bundleId) on \(device)."
     }
 
     private static func findApp(in derived: URL) throws -> URL {
@@ -257,15 +460,16 @@ enum MCPResult {
         return String(describing: result)
     }
 
-    /// Xcode reports an unsupported/disabled tool as a normal (non-throwing) result,
-    /// e.g. {"isError": true, "content": [{"type": "text", "text": "Tool 'X' is not enabled."}]},
-    /// so callers must check this explicitly rather than relying on `callTool` throwing.
+    /// Xcode reports an unsupported/disabled tool as a normal (non-throwing) result.
+    /// Do not treat every `isError` as "tool missing" — identifier-in-use is a
+    /// real session failure and must not fall through to a second start on the same id.
     static func isUnavailable(_ result: Any) -> Bool {
-        if let dict = result as? [String: Any], let isError = dict["isError"] as? Bool, isError {
+        let text = ((try? flatten(result)) ?? "").lowercased()
+        if text.contains("is not enabled") { return true }
+        if text.contains("tool") && (text.contains("unknown") || text.contains("not available")) {
             return true
         }
-        let text = (try? flatten(result)) ?? ""
-        return text.isEmpty || text.localizedCaseInsensitiveContains("is not enabled")
+        return false
     }
 
     static func sessionKey(in result: Any) -> String? {
@@ -300,9 +504,6 @@ enum MCPResult {
                         return String(matched[valueRange]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                     }
                 }
-                // Xcode's XcodeListWindows returns a human-readable message, e.g.
-                // "* tabIdentifier: windowtab-12ta0uNPy1, workspacePath: /path" — no
-                // quotes around the key or value, so fall back to a plain "key: value" match.
                 if let range = text.range(of: "\\b\(key)\\s*:\\s*([^,\\n]+)", options: .regularExpression) {
                     let matched = String(text[range])
                     if let colonRange = matched.range(of: ":") {

@@ -1,18 +1,38 @@
 import Darwin
 import Foundation
 
-/// Minimal MCP stdio server (JSON-RPC, Content-Length framing, NDJSON fallback).
-enum MCPRuntime {
-    static func run() throws {
+final class ServerState {
+    let store: ConfigStore
+    var config: Config
+    let engine = InteractionEngine()
+    private let lock = NSLock()
+
+    static func load() throws -> ServerState {
         let store = try ConfigStore.default()
         var config = DefaultTargets.seededConfig(existing: try store.load())
         try store.save(config)
-        let engine = InteractionEngine()
-        defer { engine.endSession() }
+        return ServerState(store: store, config: config)
+    }
 
+    private init(store: ConfigStore, config: Config) {
+        self.store = store
+        self.config = config
+    }
+
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+}
+
+/// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
+enum MCPRuntime {
+    static let version = "0.2.0"
+
+    static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
         var framing: JSONRPC.Framing = .contentLength
-        let input = FileHandle.standardInput
         while true {
             let chunk = input.availableData
             if chunk.isEmpty {
@@ -20,7 +40,16 @@ enum MCPRuntime {
             }
             buffer.append(chunk)
             while let message = try JSONRPC.extractMessage(from: &buffer, framing: &framing) {
-                try handle(message: message, store: store, config: &config, engine: engine, framing: framing)
+                try state.withLock {
+                    try handle(
+                        message: message,
+                        store: state.store,
+                        config: &state.config,
+                        engine: state.engine,
+                        framing: framing,
+                        output: output
+                    )
+                }
             }
         }
     }
@@ -30,7 +59,8 @@ enum MCPRuntime {
         store: ConfigStore,
         config: inout Config,
         engine: InteractionEngine,
-        framing: JSONRPC.Framing
+        framing: JSONRPC.Framing,
+        output: FileHandle
     ) throws {
         let object = try JSONValue.object(from: message)
         let method = object["method"] as? String
@@ -43,7 +73,7 @@ enum MCPRuntime {
 
         guard let method else {
             if id != nil {
-                try reply(id: id, error: ("Invalid Request", -32600), framing: framing)
+                try reply(id: id, error: ("Invalid Request", -32600), framing: framing, output: output)
             }
             return
         }
@@ -56,8 +86,8 @@ enum MCPRuntime {
                 result = [
                     "protocolVersion": requested,
                     "capabilities": ["tools": ["listChanged": false]],
-                    "serverInfo": ["name": "DeviceAutomator", "version": "0.1.0"],
-                    "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. Use observe hitPoints for taps. Never modify the target app source.",
+                    "serverInfo": ["name": "DeviceAutomator", "version": version],
+                    "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. Use observe hitPoints for taps. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
                 ]
             case "ping":
                 result = [:]
@@ -68,16 +98,16 @@ enum MCPRuntime {
                 let arguments = params["arguments"] as? [String: Any] ?? [:]
                 result = try callTool(name, arguments: arguments, store: store, config: &config, engine: engine)
             default:
-                try reply(id: id, error: ("Method not found: \(method)", -32601), framing: framing)
+                try reply(id: id, error: ("Method not found: \(method)", -32601), framing: framing, output: output)
                 return
             }
-            try reply(id: id, result: result, framing: framing)
+            try reply(id: id, result: result, framing: framing, output: output)
         } catch {
             let text = error.localizedDescription
             if method == "tools/call" {
-                try reply(id: id, result: toolResult(text, isError: true), framing: framing)
+                try reply(id: id, result: toolResult(text, isError: true), framing: framing, output: output)
             } else {
-                try reply(id: id, error: (text, -32000), framing: framing)
+                try reply(id: id, error: (text, -32000), framing: framing, output: output)
             }
         }
     }
@@ -130,12 +160,12 @@ enum MCPRuntime {
         ),
         tool(
             "install_and_run",
-            "Build, install, and launch the current target app. Prefers Xcode DeviceInteraction; falls back to xcodebuild + devicectl. Does not modify app source.",
+            "Build, install, and launch the current target app. If a DeviceInteraction session is already active, does not start a second one — rebuilds through that session or xcodebuild+devicectl/simctl, then keeps using the existing observe/tap session. If none is open, builds via xcodebuild without opening DeviceInteraction (observe/tap opens the one session). Does not modify app source.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
             "observe",
-            "Screenshot + accessibility hierarchy from DeviceInteraction. Use hitPoints from this tree for taps.",
+            "Screenshot + accessibility hierarchy from DeviceInteraction. Reuses the live session when one exists; after end_session, starts a new identifier automatically. Use hitPoints from this tree for taps. applicationState reflects a live hierarchy (not NotRun) when the tree was captured.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
@@ -199,7 +229,14 @@ enum MCPRuntime {
             ],
             required: ["orientation"]
         ),
-        tool("end_session", "Close the DeviceInteraction session. Call when the flow is finished."),
+        tool(
+            "end_session",
+            "Close the DeviceInteraction session. Optional during a coding loop — leave it open across rebuilds. The next observe/tap starts a new identifier automatically. Prefer reset_session if the session is wedged."
+        ),
+        tool(
+            "reset_session",
+            "Release the Xcode DeviceInteraction identifier and clear local session state so the next observe/tap can start clean. Does not kill Device Automator. Use this instead of killing processes."
+        ),
     ]
 
     private static func callTool(
@@ -221,7 +258,7 @@ enum MCPRuntime {
             }
             config.currentTarget = targetName
             try store.save(config)
-            engine.endSession()
+            engine.endSession(disconnectClient: false)
             return try toolResult(JSONValue.encodePretty(config.resolvedCurrent()))
         case "add_target":
             let targetName = try requireString(arguments, "name")
@@ -307,8 +344,11 @@ enum MCPRuntime {
                 return try synthesize("orientation \(orientation)", arguments: arguments, config: config, engine: engine)
             }
         case "end_session":
-            engine.endSession()
-            return toolResult("Device interaction session closed.")
+            engine.endSession(disconnectClient: false)
+            return toolResult("Device interaction session closed. The next observe/tap will start a new session identifier. Leave the session open across rebuilds when you can.")
+        case "reset_session":
+            engine.resetSession()
+            return toolResult("Released the Xcode DeviceInteraction identifier. The next observe/tap will start a new session. Device Automator is still running.")
         default:
             throw DeviceAutomatorError.commandFailed("Unknown tool '\(name)'.")
         }
@@ -388,22 +428,24 @@ enum MCPRuntime {
         ]
     }
 
-    private static func reply(id: Any?, result: Any, framing: JSONRPC.Framing) throws {
+    private static func reply(id: Any?, result: Any, framing: JSONRPC.Framing, output: FileHandle) throws {
         guard id != nil else { return }
-        try write(["jsonrpc": "2.0", "id": id as Any, "result": result], framing: framing)
+        try write(["jsonrpc": "2.0", "id": id as Any, "result": result], framing: framing, output: output)
     }
 
-    private static func reply(id: Any?, error: (String, Int), framing: JSONRPC.Framing) throws {
+    private static func reply(id: Any?, error: (String, Int), framing: JSONRPC.Framing, output: FileHandle) throws {
         guard id != nil else { return }
         try write([
             "jsonrpc": "2.0",
             "id": id as Any,
             "error": ["code": error.1, "message": error.0],
-        ], framing: framing)
+        ], framing: framing, output: output)
     }
 
-    private static func write(_ payload: [String: Any], framing: JSONRPC.Framing) throws {
-        FileHandle.standardOutput.write(try JSONRPC.encode(payload, framing: framing))
-        fflush(stdout)
+    private static func write(_ payload: [String: Any], framing: JSONRPC.Framing, output: FileHandle) throws {
+        output.write(try JSONRPC.encode(payload, framing: framing))
+        if output.fileDescriptor == STDOUT_FILENO {
+            fflush(stdout)
+        }
     }
 }

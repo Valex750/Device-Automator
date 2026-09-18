@@ -97,4 +97,28 @@ enum AppSupport {
         let name = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         return try screenshots().appendingPathComponent("\(name).png")
     }
+
+    static func engineSocket() throws -> URL {
+        try root().appendingPathComponent("engine.sock")
+    }
+
+    static func engineLock() throws -> URL {
+        try root().appendingPathComponent("engine.lock")
+    }
+
+    static func engineLog() throws -> URL {
+        try root().appendingPathComponent("engine.log")
+    }
+
+    static func enginePID() throws -> URL {
+        try root().appendingPathComponent("engine.pid")
+    }
+
+    static func identifierCooldown() throws -> URL {
+        try root().appendingPathComponent("identifier-cooldown.json")
+    }
+
+    static func persistedSession() throws -> URL {
+        try root().appendingPathComponent("interaction-session.json")
+    }
 }
