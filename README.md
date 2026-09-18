@@ -234,9 +234,21 @@ before starting rather than guessing.
 5. **Fix and re-verify.** If something's wrong, read the error/state from
    `observe`'s output, fix the app's source, rebuild with `install_and_run`,
    and repeat step 4. Keep iterating until it's actually correct — don't stop
-   at "it should work now."
+   at "it should work now" — but obey the hard stop below; do not loop
+   indefinitely.
 6. **Close out.** Call `end_session` once verified. Summarize what changed
    and how it was verified.
+
+## Hard stop
+
+Cap step 5 at **5 fix attempts total**. Stop earlier than that if the same
+error or symptom repeats twice in a row with no new information — that means
+the fix isn't addressing the real cause, not that one more try will help.
+
+When you stop (whether by hitting the cap or stopping early), do not keep
+iterating or start guessing wildly. Report to the user: what you tried, the
+exact current failure/symptom (quote `observe`'s output), and your best
+hypothesis for the actual cause. Ask how they want to proceed.
 
 ## Rules
 
