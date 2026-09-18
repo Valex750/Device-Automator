@@ -181,6 +181,78 @@ After reload, the agent can:
 4. `tap` / `type` / `swipe` / `press_button`
 5. `end_session` when the flow is done
 
+## Skill template: full dev cycle
+
+For an agent that will repeatedly plan, implement, build, verify, and fix
+features using Device Automator, it's worth creating a reusable skill once
+per project rather than re-explaining the workflow each time. In Claude Code,
+a skill is a Markdown file with YAML frontmatter at
+`.claude/skills/dev-cycle/SKILL.md` **inside the app project being driven**
+(not inside this Device Automator checkout), invoked afterward as
+`/dev-cycle <feature description>`.
+
+To set this up on a new Mac/project, create that file with this content
+verbatim (it's already project-agnostic — no path substitution needed):
+
+````markdown
+---
+name: dev-cycle
+description: Full plan-implement-run-verify-fix loop for developing a feature or fixing a bug in this app, using Device Automator to drive the iOS Simulator like a real user rather than just reading code or screenshots. Use when the user asks to build/implement/add a feature, fix a bug end-to-end, or invokes /dev-cycle <description>.
+---
+
+# Feature development cycle (plan → build → verify → fix)
+
+Use this whenever developing a feature or fixing a bug that has a visible UI
+effect, and the `device-automator` MCP tools are available. Don't consider the
+work done until it's been verified through real Simulator interaction — not
+just "compiles" or "looks right in a screenshot."
+
+## What to build
+
+Treat the request text (or the argument passed to this skill) as the
+feature/fix to implement. If scope is ambiguous, ask a clarifying question
+before starting rather than guessing.
+
+## The cycle
+
+1. **Plan.** Read the relevant existing code first (views, view models,
+   models) and decide the smallest correct change. Call `get_target` to
+   confirm you're driving the right app/scheme/device before touching
+   anything.
+2. **Implement.** Make the change in the app's own source. Never modify
+   Device Automator's own source as part of this cycle — it's a separate
+   tool; if it misbehaves, stop and tell the user instead of patching it.
+3. **Build and launch.** Call `install_and_run` to build, install, and launch
+   the app fresh with the change.
+4. **Verify like a user.** Call `observe` to get the accessibility tree and
+   `hitPoint`s, then navigate to the feature with `tap` / `type` / `swipe` /
+   `double_tap`. Always tap the `hitPoint` coordinates `observe` returns —
+   never coordinates guessed from a screenshot. Confirm the feature's actual
+   behavior (text, state, navigation) matches what was intended, including
+   the obvious edge cases (empty state, error state, etc.), not just the
+   happy path.
+5. **Fix and re-verify.** If something's wrong, read the error/state from
+   `observe`'s output, fix the app's source, rebuild with `install_and_run`,
+   and repeat step 4. Keep iterating until it's actually correct — don't stop
+   at "it should work now."
+6. **Close out.** Call `end_session` once verified. Summarize what changed
+   and how it was verified.
+
+## Rules
+
+- Never guess UI coordinates from screenshot pixels — always use `observe`'s
+  `hitPoint`s.
+- The first `observe`/`tap` call in a session may pop an Xcode "Allow ... to
+  access Xcode?" dialog. That needs a human click — tell the user rather than
+  retrying it blindly.
+- "Done" means verified working through real UI interaction, not "code
+  compiles."
+````
+
+Once the file exists, the user (or the agent itself) can invoke it with
+`/dev-cycle <feature description>`, or Claude Code may pick it up
+automatically for matching requests per its `description`.
+
 ## Troubleshooting
 
 ### "Xcode started a device session but returned no session key" / tabIdentifier errors
