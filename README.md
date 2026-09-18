@@ -68,7 +68,7 @@ Written for a coding agent (e.g. Claude Code) setting this up on a Mac and proje
    list_devices
    screenshot
    ```
-   Then try `observe` (expect the one-time dialog from step 6) and confirm the accessibility tree covers the app; use its `hitPoint`s — not guessed screenshot pixels — for `tap`/`double_tap`/`swipe`/`type`.
+   `screenshot` here is only a connectivity smoke test (it does not need Xcode). Then try `observe` (expect the one-time dialog from step 6) and confirm `hierarchyPath` covers the app. Drive with its `hitPoint`s — not guessed screenshot pixels. Do not open `screenshotPath` to decide what to tap or whether the UI is correct; if a PNG and the tree disagree, the tree wins. See [Drive from the accessibility tree](#drive-from-the-accessibility-tree).
 
 ## Requirements
 
@@ -167,7 +167,7 @@ In the project you want the agent to drive (or in Cursor user MCP settings), add
 }
 ```
 
-Reload MCP. Cursor should list 18 tools. `list_targets`, `list_devices`, and `screenshot` should return without opening Xcode. `observe` / `tap` need Xcode running, the target project opened at least once, and **Allow external agents** for Cursor on that Mac.
+Reload MCP. Cursor should list 18 tools. `list_targets`, `list_devices`, and `screenshot` should return without opening Xcode (`screenshot` is a connectivity check, not how you verify UI). `observe` / `tap` need Xcode running, the target project opened at least once, and **Allow external agents** for Cursor on that Mac.
 
 ## Configure Claude Code
 
@@ -177,9 +177,36 @@ After reload, the agent can:
 
 1. `list_devices` / `boot_simulator`
 2. `install_and_run` (build + install + launch; does not edit app source)
-3. `observe` for the accessibility tree and `hitPoint`s
+3. `observe` for `hierarchyPath` and `hitPoint`s (source of truth; ignore `screenshotPath` unless the tree cannot answer the check)
 4. `tap` / `type` / `swipe` / `press_button`
 5. `end_session` when the flow is done
+
+## Drive from the accessibility tree
+
+`observe` (and tap/type/swipe results) return a `hierarchyPath` and a
+`screenshotPath`. The hierarchy is the iOS equivalent of a DOM. **Treat the
+tree as the only source of truth.** Enforce the tree against screenshots:
+
+1. After every `observe` / `tap` / `type` / `swipe` / `double_tap`, open or
+   grep `hierarchyPath` first. Find the control by `label` / `identifier`,
+   then tap its `hitPoint`.
+2. Confirm behavior from the tree: labels, `Selected` / enabled state,
+   presence or absence of nodes, navigation. Quote those lines when reporting
+   what was verified.
+3. **Do not** open `screenshotPath` or `thumbnailScreenshotPath`. **Do not**
+   call the `screenshot` tool to drive or verify UI. Ignore those paths unless
+   the exception below applies.
+4. If a screenshot and the tree disagree, the tree wins. Report the tree
+   evidence, not the image.
+
+**Screenshot exception (narrow).** Open a PNG only when the tree cannot
+answer the check: layout, spacing, or color that accessibility does not
+expose; a missing accessibility label so the node is not in the tree; or a
+visual-only regression the user asked about. Say why the tree was
+insufficient. Then still tap `hitPoint`s from the tree, never pixel guesses.
+
+The standalone `screenshot` tool is for connectivity checks on runtimes that
+lack Device Interaction, not for verifying features when `observe` works.
 
 ## Skill template: full dev cycle
 
@@ -204,8 +231,10 @@ description: Full plan-implement-run-verify-fix loop for developing a feature or
 
 Use this whenever developing a feature or fixing a bug that has a visible UI
 effect, and the `device-automator` MCP tools are available. Don't consider the
-work done until it's been verified through real Simulator interaction — not
-just "compiles" or "looks right in a screenshot."
+work done until it's been verified through real Simulator interaction against
+the accessibility tree — not just "compiles" or "looks right in a screenshot."
+Verification in steps 4–6 follows the `verify-in-simulator` skill: tree first,
+screenshots only when the tree cannot answer the check.
 
 ## What to build
 
@@ -224,20 +253,20 @@ before starting rather than guessing.
    tool; if it misbehaves, stop and tell the user instead of patching it.
 3. **Build and launch.** Call `install_and_run` to build, install, and launch
    the app fresh with the change.
-4. **Verify like a user.** Call `observe` to get the accessibility tree and
-   `hitPoint`s, then navigate to the feature with `tap` / `type` / `swipe` /
-   `double_tap`. Always tap the `hitPoint` coordinates `observe` returns —
-   never coordinates guessed from a screenshot. Confirm the feature's actual
-   behavior (text, state, navigation) matches what was intended, including
-   the obvious edge cases (empty state, error state, etc.), not just the
-   happy path.
+4. **Verify like a user.** Follow `verify-in-simulator`: call `observe`, then
+   navigate with `tap` / `type` / `swipe` / `double_tap` using `hitPoint`s
+   from the latest hierarchy. Confirm text, state, and navigation from the
+   tree, including the obvious edge cases (empty state, error state, etc.),
+   not just the happy path. Do not open `screenshotPath` unless the tree
+   cannot answer the check. If a screenshot and the tree disagree, the tree
+   wins.
 5. **Fix and re-verify.** If something's wrong, read the error/state from
-   `observe`'s output, fix the app's source, rebuild with `install_and_run`,
-   and repeat step 4. Keep iterating until it's actually correct — don't stop
+   the hierarchy, fix the app's source, rebuild with `install_and_run`, and
+   repeat step 4. Keep iterating until it's actually correct — don't stop
    at "it should work now" — but obey the hard stop below; do not loop
    indefinitely.
 6. **Close out.** Call `end_session` once verified. Summarize what changed
-   and how it was verified.
+   and how it was verified (quote hierarchy lines, not a screenshot recap).
 
 ## Hard stop
 
@@ -247,18 +276,20 @@ the fix isn't addressing the real cause, not that one more try will help.
 
 When you stop (whether by hitting the cap or stopping early), do not keep
 iterating or start guessing wildly. Report to the user: what you tried, the
-exact current failure/symptom (quote `observe`'s output), and your best
+exact current failure/symptom (quote the hierarchy), and your best
 hypothesis for the actual cause. Ask how they want to proceed.
 
 ## Rules
 
 - Never guess UI coordinates from screenshot pixels — always use `observe`'s
   `hitPoint`s.
+- Never open a screenshot to decide what to tap, whether a screen loaded, or
+  whether a feature worked, if the tree already has that information.
 - The first `observe`/`tap` call in a session may pop an Xcode "Allow ... to
   access Xcode?" dialog. That needs a human click — tell the user rather than
   retrying it blindly.
-- "Done" means verified working through real UI interaction, not "code
-  compiles."
+- "Done" means verified working through real UI interaction against the
+  accessibility tree, not "code compiles" or "the screenshot looked right."
 ````
 
 Once the file exists, the user (or the agent itself) can invoke it with
@@ -281,7 +312,7 @@ being driven** with this content verbatim:
 ````markdown
 ---
 name: verify-in-simulator
-description: Verify that a UI-visible change actually works by running the app in the iOS Simulator via Device Automator (build, launch, observe, tap) instead of relying on code review or a screenshot guess alone. Use after implementing or fixing a UI-visible change, when asked to confirm/test/verify a feature works, or before considering such a change done.
+description: Verify that a UI-visible change actually works by running the app in the iOS Simulator via Device Automator (build, launch, observe, tap), using the accessibility tree as the source of truth rather than screenshots. Use after implementing or fixing a UI-visible change, when asked to confirm/test/verify a feature works, or before considering such a change done.
 ---
 
 # Verify in Simulator
@@ -292,25 +323,47 @@ the `device-automator` MCP tools to drive the app like a real user. It does
 not cover planning or implementing; if those haven't happened yet, do them
 first (or use the `dev-cycle` skill for the full loop).
 
+## Source of truth: accessibility tree, not screenshots
+
+`observe` (and tap/type/swipe results) return a `hierarchyPath` and a
+`screenshotPath`. The hierarchy is the iOS equivalent of a DOM. **Treat the
+tree as the only source of truth.** Enforce the tree against screenshots:
+
+1. After every `observe` / `tap` / `type` / `swipe` / `double_tap`, open or
+   grep `hierarchyPath` first. Find the control by `label` / `identifier`,
+   then tap its `hitPoint`.
+2. Confirm behavior from the tree: labels, `Selected` / enabled state,
+   presence or absence of nodes, navigation. Quote those lines when you
+   report what you verified.
+3. **Do not** `Read` `screenshotPath` or `thumbnailScreenshotPath`. **Do not**
+   call the `screenshot` tool. Ignore those paths unless the exception below
+   applies.
+4. If a screenshot and the tree disagree, the tree wins. Report the tree
+   evidence, not the image.
+
+**Screenshot exception (narrow).** Open a PNG only when the tree cannot
+answer the check: layout, spacing, or color that accessibility does not
+expose; a missing accessibility label so the node is not in the tree; or a
+visual-only regression the user asked about. Say why the tree was
+insufficient. Then still tap `hitPoint`s from the tree, never pixel guesses.
+
 ## Steps
 
 1. **Confirm target.** Call `get_target` to confirm you're driving the right
    app/scheme/device before doing anything else.
 2. **Build and launch.** Call `install_and_run` to build, install, and launch
    the app fresh with the change under test.
-3. **Verify like a user.** Call `observe` to get the accessibility tree and
-   `hitPoint`s, then navigate to the feature with `tap` / `type` / `swipe` /
-   `double_tap`. Always tap the `hitPoint` coordinates `observe` returns —
-   never coordinates guessed from a screenshot. Confirm the feature's actual
-   behavior (text, state, navigation) matches what was intended, including
-   the obvious edge cases (empty state, error state, etc.), not just the
-   happy path.
+3. **Verify like a user.** Call `observe`, then drive the feature with
+   `tap` / `type` / `swipe` / `double_tap` using `hitPoint`s from the latest
+   tree. Confirm text, state, and navigation against the hierarchy,
+   including the obvious edge cases (empty state, error state, etc.), not
+   just the happy path.
 4. **Fix and re-verify.** If something's wrong, read the error/state from
-   `observe`'s output, fix the app's source, rebuild with `install_and_run`,
-   and repeat step 3.
+   the hierarchy, fix the app's source, rebuild with `install_and_run`, and
+   repeat step 3.
 5. **Close out.** Call `end_session` once verified. Report what you verified
-   and how — quote the relevant `observe` output or describe the exact
-   interaction sequence, not just "it works."
+   and how — quote the relevant hierarchy lines or describe the exact
+   interaction sequence, not just "it works" and not a screenshot recap.
 
 ## Hard stop
 
@@ -320,21 +373,24 @@ the fix isn't addressing the real cause, not that one more try will help.
 
 When you stop (whether by hitting the cap or stopping early), do not keep
 iterating or start guessing wildly. Report to the user: what you tried, the
-exact current failure/symptom (quote `observe`'s output), and your best
+exact current failure/symptom (quote the hierarchy), and your best
 hypothesis for the actual cause. Ask how they want to proceed.
 
 ## Rules
 
 - Never guess UI coordinates from screenshot pixels — always use `observe`'s
   `hitPoint`s.
+- Never open a screenshot to decide what to tap, whether a screen loaded, or
+  whether a feature worked, if the tree already has that information.
 - Never modify Device Automator's own source as part of this skill — it's a
   separate tool; if it misbehaves, stop and tell the user instead of
   patching it.
 - The first `observe`/`tap` call in a session may pop an Xcode "Allow ... to
   access Xcode?" dialog. That needs a human click — tell the user rather than
   retrying it blindly.
-- "Verified" means confirmed working through real UI interaction, not "code
-  compiles" or "should work."
+- "Verified" means confirmed working through real UI interaction against the
+  accessibility tree, not "code compiles," "should work," or "the screenshot
+  looked right."
 ````
 
 Skills only get picked up when Claude Code decides the task matches their
@@ -349,9 +405,11 @@ regardless of skill-matching:
 
 Before considering any UI-visible change done, verify it actually works in
 the iOS Simulator using the `device-automator` MCP tools — don't rely on code
-review or a screenshot guess alone. Use the `verify-in-simulator` skill for
-just the verification step, or `dev-cycle` for the full plan-implement-verify
-loop, rather than stopping at "should work."
+review or a screenshot guess alone. Drive and verify from `observe`'s
+accessibility tree (`hierarchyPath`); do not open screenshots when the tree
+already has the answer. Use the `verify-in-simulator` skill for just the
+verification step, or `dev-cycle` for the full plan-implement-verify loop,
+rather than stopping at "should work."
 ```
 
 ## Troubleshooting
@@ -383,8 +441,8 @@ This is Xcode's own external-agent consent gate (Settings → Intelligence → M
 | `list_targets`, `get_target`, `set_target`, `add_target`, `remove_target` | Named apps to drive |
 | `list_devices`, `boot_simulator`, `shutdown_simulator` | Simulators and devices |
 | `install_and_run` | Build, install, launch |
-| `screenshot` | PNG via CoreDevice |
-| `observe` | Screenshot + accessibility tree |
+| `screenshot` | PNG via CoreDevice. Connectivity smoke test only; do not use it to drive or verify UI when `observe` is available |
+| `observe` | Accessibility tree (`hierarchyPath`) + PNG. Drive and verify from the tree; ignore `screenshotPath` unless the tree cannot answer the check |
 | `tap`, `double_tap`, `swipe`, `type`, `press_button`, `set_orientation` | Human-like input |
 | `end_session` | Close the Device Interaction session |
 
