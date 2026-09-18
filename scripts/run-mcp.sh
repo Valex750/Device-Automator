@@ -6,12 +6,12 @@ set -euo pipefail
 #   args: ["…/Device Automator/scripts/run-mcp.sh"]
 #
 # Copied Development-signed Mach-Os under Application Support are killed
-# (Code Signature Invalid), so they must be re-signed after install. Re-signing
-# ad-hoc (--sign -) works but gives every rebuild a different signature, which
-# makes macOS TCC treat each rebuild as a brand-new app and re-prompt for the
-# "Allow DeviceAutomator to access Xcode?" Automation permission every time.
-# Signing with a real, stable certificate instead means TCC recognizes the
-# same signing identity across rebuilds, so the grant only needs approving once.
+# (Code Signature Invalid), so they must be re-signed after install. Re-sign
+# with a real, stable certificate rather than ad-hoc (--sign -): ad-hoc gives
+# every rebuild a different signature, which is bad practice regardless of
+# whether it affects Xcode's own "Allow external agent" consent dialog (see
+# README Troubleshooting — that dialog appears to be scoped per running
+# process, not per signature, so it may still reappear on process restarts).
 SIGNING_IDENTITY="Apple Development: vinalex750@gmail.com (KLMDKUF4UY)"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

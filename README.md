@@ -4,6 +4,72 @@ A macOS MCP server that lets a coding agent boot a simulator, install an iOS app
 
 Targets (project path, scheme, bundle ID, device) live in Device Automator config, not in the app you are driving.
 
+## Agent setup checklist (new Mac, new project)
+
+Written for a coding agent (e.g. Claude Code) setting this up on a Mac and project it hasn't seen before. Follow in order. Step 6 needs a human to click something in a GUI and cannot be scripted or skipped — stop and ask the user there instead of retrying.
+
+1. **Check prerequisites.**
+   ```bash
+   uname -m                                # expect arm64
+   xcodebuild -version                     # expect Xcode 27.x
+   xcrun simctl list runtimes | grep -i ios # expect an iOS 27.x runtime
+   ```
+   `observe` / `tap` / `type` / `swipe` (Device Interaction) only work on an **iOS 27** simulator. Other runtimes still support `list_devices`, `boot_simulator`, and `screenshot`. If there's no iOS 27 runtime, ask the user to install one via Xcode → Settings → Platforms.
+
+2. **Clone and build.**
+   ```bash
+   git clone https://github.com/Valex750/Device-Automator.git
+   cd Device-Automator/DeviceAutomator
+   xcodebuild -project DeviceAutomator.xcodeproj -scheme DeviceAutomator \
+     -configuration Release -destination 'platform=macOS,arch=arm64' build
+   ```
+   If signing fails here, append `CODE_SIGN_IDENTITY=-` to that command — that's just the one-off build step; the *installed* copy still gets re-signed with a real identity in the next step.
+
+3. **Pick a stable signing identity for this Mac** and put it in `scripts/run-mcp.sh`.
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+   Pick any identity from the output — a free personal "Apple Development" certificate is fine, and it does **not** need to match whatever identity signs the app you'll be driving. Edit the `SIGNING_IDENTITY="..."` line near the top of `scripts/run-mcp.sh` to that exact string. If the list is empty, ask the user to open Xcode → Settings → Accounts and add their Apple ID (Xcode creates a personal certificate automatically), then retry this step.
+
+4. **Register the MCP server** with the coding agent (Claude Code: a project `.mcp.json` or user-level MCP settings), using the absolute path to `scripts/run-mcp.sh` **on this Mac**. The folder name contains a space, so keep it as one quoted string:
+   ```json
+   {
+     "mcpServers": {
+       "device-automator": {
+         "command": "/bin/bash",
+         "args": ["/ABSOLUTE/PATH/TO/Device Automator/scripts/run-mcp.sh"]
+       }
+     }
+   }
+   ```
+   Reload MCP servers so it connects, then confirm with `list_targets` that 18 tools are available (see the [Tools](#tools) table).
+
+5. **Configure the target app you actually want to drive.** A fresh checkout seeds `config.json` with a placeholder pointing at the original author's own project (`Lift Planner`), but only when no config exists yet — that placeholder is almost certainly not the app you want on a different Mac. Call `add_target` (its parameters are `snake_case`, unlike the `camelCase` field names stored in `config.json` — see [Configure a target app](#configure-a-target-app)) with the real project's details, then `set_target`:
+   ```
+   add_target(
+     name: "<ShortName>",
+     project_path: "/ABSOLUTE/PATH/TO/App.xcodeproj",  # or .xcworkspace
+     scheme: "<SchemeName>",
+     bundle_id: "com.example.app",
+     device: "<UDID from list_devices>"
+   )
+   set_target(name: "<ShortName>")
+   ```
+   Get a device UDID with `list_devices` (or `xcrun simctl list devices`) — prefer an **iOS 27** simulator if `observe`/`tap`/`type`/`swipe` will be used.
+
+6. **Two one-time steps only a human can approve.** Ask the user to do these rather than retrying automatically — there is no scriptable or command-line way to pre-authorize either one:
+   - In Xcode: **Settings → Intelligence → Model Context Protocol → "Allow External Agents to Use Xcode Tools"** → set to **Always**.
+   - The *first* `observe` or `tap` call on this Mac pops a **"Allow '\<binary\>' to access Xcode?"** dialog — Xcode's own per-process agent-consent gate (separate from the setting above, and from macOS's classic Automation/TCC prompt). Ask the user to click **Allow**. It can reappear on later process restarts; see [Troubleshooting](#troubleshooting) if it seems excessive.
+
+7. **Verify.** These should succeed without touching Xcode:
+   ```
+   list_targets
+   get_target
+   list_devices
+   screenshot
+   ```
+   Then try `observe` (expect the one-time dialog from step 6) and confirm the accessibility tree covers the app; use its `hitPoint`s — not guessed screenshot pixels — for `tap`/`double_tap`/`swipe`/`type`.
+
 ## Requirements
 
 - Apple Silicon Mac
@@ -70,17 +136,19 @@ Config file:
 
 Override with `DEVICE_AUTOMATOR_CONFIG` if you want a different file.
 
-Seed from `config.example.json`, or call `add_target` from the agent:
+Seed from `config.example.json` directly, or call the `add_target` tool from the agent. Note the two schemas use different casing for the same fields:
 
-| Field | Meaning |
-| --- | --- |
-| `name` | Short name, e.g. `Lift Planner` |
-| `projectPath` | Absolute `.xcodeproj` or `.xcworkspace` |
-| `scheme` | Xcode scheme |
-| `bundleId` | App bundle identifier |
-| `device` | Simulator UDID (`xcrun simctl list devices`) |
+| `config.json` field (camelCase) | `add_target` parameter (snake_case) | Meaning |
+| --- | --- | --- |
+| `name` | `name` | Short name, e.g. `MyApp` |
+| `projectPath` | `project_path` | Absolute `.xcodeproj` or `.xcworkspace` |
+| `scheme` | `scheme` | Xcode scheme |
+| `bundleId` | `bundle_id` | App bundle identifier |
+| `device` | `device` | Simulator UDID (`xcrun simctl list devices`) |
 
 `set_target` selects which configured app to drive. Device Automator refuses writes into those project trees (screenshots and derived data go under Application Support).
+
+If `config.json` doesn't exist yet, Device Automator seeds it with one placeholder target (`DefaultTargets.liftPlanner` in `TargetGuard.swift`) pointing at the original author's own project on their Mac. That's a convenience default for that one installation only — on any other Mac or for any other project, call `add_target` and `set_target` for the real app before using `observe`/`tap`/etc., rather than assuming the seeded target is meaningful.
 
 ## Configure Cursor
 
