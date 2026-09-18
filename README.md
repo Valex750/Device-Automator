@@ -265,6 +265,95 @@ Once the file exists, the user (or the agent itself) can invoke it with
 `/dev-cycle <feature description>`, or Claude Code may pick it up
 automatically for matching requests per its `description`.
 
+## Skill template: verify-in-simulator (for agents that already plan/implement)
+
+If an agent already has its own plan-implement-review workflow and just needs
+to know it *can* verify a UI-visible change by actually running it — rather
+than stopping at code review or a screenshot guess — give it this narrower
+skill instead of (or alongside) `dev-cycle`. It only covers building,
+launching, and verifying via `observe`/`tap`, with the same fix/re-verify
+loop and hard stop, and skips the planning/implementing steps the calling
+agent already handles.
+
+Create `.claude/skills/verify-in-simulator/SKILL.md` **inside the app project
+being driven** with this content verbatim:
+
+````markdown
+---
+name: verify-in-simulator
+description: Verify that a UI-visible change actually works by running the app in the iOS Simulator via Device Automator (build, launch, observe, tap) instead of relying on code review or a screenshot guess alone. Use after implementing or fixing a UI-visible change, when asked to confirm/test/verify a feature works, or before considering such a change done.
+---
+
+# Verify in Simulator
+
+Use this after a UI-visible change has already been planned, implemented, and
+reviewed elsewhere — this skill only covers proving it actually works, using
+the `device-automator` MCP tools to drive the app like a real user. It does
+not cover planning or implementing; if those haven't happened yet, do them
+first (or use the `dev-cycle` skill for the full loop).
+
+## Steps
+
+1. **Confirm target.** Call `get_target` to confirm you're driving the right
+   app/scheme/device before doing anything else.
+2. **Build and launch.** Call `install_and_run` to build, install, and launch
+   the app fresh with the change under test.
+3. **Verify like a user.** Call `observe` to get the accessibility tree and
+   `hitPoint`s, then navigate to the feature with `tap` / `type` / `swipe` /
+   `double_tap`. Always tap the `hitPoint` coordinates `observe` returns —
+   never coordinates guessed from a screenshot. Confirm the feature's actual
+   behavior (text, state, navigation) matches what was intended, including
+   the obvious edge cases (empty state, error state, etc.), not just the
+   happy path.
+4. **Fix and re-verify.** If something's wrong, read the error/state from
+   `observe`'s output, fix the app's source, rebuild with `install_and_run`,
+   and repeat step 3.
+5. **Close out.** Call `end_session` once verified. Report what you verified
+   and how — quote the relevant `observe` output or describe the exact
+   interaction sequence, not just "it works."
+
+## Hard stop
+
+Cap step 4 at **5 fix attempts total**. Stop earlier than that if the same
+error or symptom repeats twice in a row with no new information — that means
+the fix isn't addressing the real cause, not that one more try will help.
+
+When you stop (whether by hitting the cap or stopping early), do not keep
+iterating or start guessing wildly. Report to the user: what you tried, the
+exact current failure/symptom (quote `observe`'s output), and your best
+hypothesis for the actual cause. Ask how they want to proceed.
+
+## Rules
+
+- Never guess UI coordinates from screenshot pixels — always use `observe`'s
+  `hitPoint`s.
+- Never modify Device Automator's own source as part of this skill — it's a
+  separate tool; if it misbehaves, stop and tell the user instead of
+  patching it.
+- The first `observe`/`tap` call in a session may pop an Xcode "Allow ... to
+  access Xcode?" dialog. That needs a human click — tell the user rather than
+  retrying it blindly.
+- "Verified" means confirmed working through real UI interaction, not "code
+  compiles" or "should work."
+````
+
+Skills only get picked up when Claude Code decides the task matches their
+`description`, which is a bit less certain for a fully autonomous agent with
+loosely-framed tasks than an explicit `/verify-in-simulator` invocation. For a
+harder guarantee, add a short standing reminder to that project's own
+`CLAUDE.md` (create one if it doesn't have one yet) — this is always loaded,
+regardless of skill-matching:
+
+```markdown
+## Verifying UI changes
+
+Before considering any UI-visible change done, verify it actually works in
+the iOS Simulator using the `device-automator` MCP tools — don't rely on code
+review or a screenshot guess alone. Use the `verify-in-simulator` skill for
+just the verification step, or `dev-cycle` for the full plan-implement-verify
+loop, rather than stopping at "should work."
+```
+
 ## Troubleshooting
 
 ### "Xcode started a device session but returned no session key" / tabIdentifier errors
