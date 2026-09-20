@@ -35,6 +35,10 @@ install_release() {
 }
 
 if [[ -x "$INSTALLED" ]]; then
+  BIN="$(derived_release || true)"
+  if [[ -n "${BIN}" && "$BIN" -nt "$INSTALLED" ]]; then
+    install_release "$BIN"
+  fi
   exec "$INSTALLED"
 fi
 

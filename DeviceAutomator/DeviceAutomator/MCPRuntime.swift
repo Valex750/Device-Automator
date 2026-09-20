@@ -28,7 +28,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.0"
+    static let version = "0.2.1"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -67,7 +67,16 @@ enum MCPRuntime {
         let id = object["id"]
         let params = object["params"] as? [String: Any] ?? [:]
 
-        if method == "notifications/initialized" || method?.hasPrefix("notifications/") == true {
+        if method == "notifications/initialized" {
+            // Cursor may cache tools/list across MCP reloads when listChanged is false.
+            try write(
+                ["jsonrpc": "2.0", "method": "notifications/tools/list_changed"],
+                framing: framing,
+                output: output
+            )
+            return
+        }
+        if method?.hasPrefix("notifications/") == true {
             return
         }
 
@@ -85,7 +94,7 @@ enum MCPRuntime {
                 let requested = JSONValue.string(params, "protocolVersion") ?? "2025-06-18"
                 result = [
                     "protocolVersion": requested,
-                    "capabilities": ["tools": ["listChanged": false]],
+                    "capabilities": ["tools": ["listChanged": true]],
                     "serverInfo": ["name": "DeviceAutomator", "version": version],
                     "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
                 ]
