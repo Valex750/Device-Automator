@@ -20,25 +20,3 @@ enum TargetGuard {
         }
     }
 }
-
-enum DefaultTargets {
-    /// Host-side seed only. Does not open or modify Lift Planner source.
-    static let liftPlanner = AppTarget(
-        name: "Lift Planner",
-        projectPath: "/Users/alexeyvinnik/Develop/Lift Planner/Lift Planner.xcodeproj",
-        scheme: "Lift Planner",
-        bundleId: "vinalex.lift-planner",
-        device: "6ADCEE06-1AFB-4B91-84A3-5C20418FAFA7"
-    )
-
-    static func seededConfig(existing: Config) -> Config {
-        var config = existing
-        if config.target(named: liftPlanner.name) == nil {
-            config.upsert(liftPlanner)
-        }
-        if config.currentTarget == nil {
-            config.currentTarget = liftPlanner.name
-        }
-        return config
-    }
-}

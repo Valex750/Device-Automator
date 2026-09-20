@@ -9,8 +9,7 @@ final class ServerState {
 
     static func load() throws -> ServerState {
         let store = try ConfigStore.default()
-        var config = DefaultTargets.seededConfig(existing: try store.load())
-        try store.save(config)
+        let config = try store.load()
         return ServerState(store: store, config: config)
     }
 
@@ -28,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.1"
+    static let version = "0.2.2"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -96,7 +95,7 @@ enum MCPRuntime {
                     "protocolVersion": requested,
                     "capabilities": ["tools": ["listChanged": true]],
                     "serverInfo": ["name": "DeviceAutomator", "version": version],
-                    "instructions": "Drive a configured iOS app (default: Lift Planner) like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
+                    "instructions": "Drive a configured iOS app like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
                 ]
             case "ping":
                 result = [:]
@@ -127,7 +126,7 @@ enum MCPRuntime {
         tool(
             "set_target",
             "Select which configured app to drive.",
-            properties: ["name": stringProperty("Target name, e.g. Lift Planner")],
+            properties: ["name": stringProperty("Target name, e.g. MyApp")],
             required: ["name"]
         ),
         tool(

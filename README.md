@@ -156,20 +156,20 @@ Grep the **`.txt` only**:
 
 ```
 Grep  path: …/Device Automator FA002CBC-20_05_31_006-hierarchy.txt
-      pattern: label: 'More'|label: 'Workout'|identifier: 'ellipsis
+      pattern: label: 'More'|label: 'Home'|identifier: 'ellipsis
 ```
 
 Tree hit:
 
 ```
-Application, pid: 65720, label: 'Lift Planner'
-StaticText, … label: 'Workout', hitPoint: {201.0, 84.0}
+Application, pid: 65720, label: 'MyApp'
+StaticText, … label: 'Home', hitPoint: {201.0, 84.0}
 Button, {{346.0, 66.0}, {36.0, 36.0}}, identifier: 'ellipsis.circle', label: 'More', hitPoint: {364.0, 84.0}
 ```
 
 Then `tap` `x: 364` `y: 84`. Report those three lines. **Do not** `Read` either PNG.
 
-Wrong (what Cursor did on Lift Planner): `Read` `screenshotPath` “to see the UI,” then guess a tap. `observe` always attaches PNGs; that is not permission to open them.
+Wrong: `Read` `screenshotPath` “to see the UI,” then guess a tap. `observe` always attaches PNGs; that is not permission to open them.
 
 ### PNG fallback (only after text failed)
 
@@ -257,7 +257,7 @@ Follow in order. Step 6 needs a human in a GUI and cannot be scripted.
    ```
    Reload MCP. Confirm `list_targets` and that **19** tools are listed, including `reset_session`. Prefer **one** MCP registration (user *or* project, not both). Two registrations still share the daemon; they must not each StartSession.
 
-5. **Configure the target app.** A missing `config.json` is seeded with a placeholder (`DefaultTargets.liftPlanner`) for the original author’s Mac. On any other Mac, call `add_target` then `set_target` before `observe`. `add_target` parameters are `snake_case`; `config.json` fields are `camelCase`.
+5. **Configure the target app.** A missing `config.json` starts empty. Call `add_target` then `set_target` before `observe`. `add_target` parameters are `snake_case`; `config.json` fields are `camelCase`.
    ```
    add_target(
      name: "<ShortName>",
@@ -400,7 +400,7 @@ Plan/implement elsewhere. This skill only proves the UI works, from **textual** 
 4. Quote the matching line. `tap` its `hitPoint: {x, y}` (`364.0` → `x: 364`, `y: 84`).
 5. Pass/fail from those lines. Put the quotes in the report.
 
-Example: Grep `label: 'More'|label: 'Workout'` on the `.txt`, then `tap` `364, 84` from `label: 'More', hitPoint: {364.0, 84.0}`. Do not open the PNG “to see the UI.”
+Example: Grep `label: 'More'|label: 'Home'` on the `.txt`, then `tap` `364, 84` from `label: 'More', hitPoint: {364.0, 84.0}`. Do not open the PNG “to see the UI.”
 
 ## PNG fallback (only after text failed)
 

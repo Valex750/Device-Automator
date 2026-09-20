@@ -57,7 +57,7 @@ enum SelfTests {
         expect(!rewritten.localizedCaseInsensitiveContains("NotRun"), "rewritten live observe must not say NotRun")
 
         let liveTree = """
-        {"applicationState":"NotRun","hierarchy":"Application, pid: 62609, label: 'Lift Planner'"}
+        {"applicationState":"NotRun","hierarchy":"Application, pid: 62609, label: 'MyApp'"}
         """
         let treeRewritten = ObserveNormalization.rewrite(liveTree)
         expect(!treeRewritten.localizedCaseInsensitiveContains("NotRun"), "live hierarchy text must not stay NotRun: \(treeRewritten)")
@@ -70,7 +70,7 @@ enum SelfTests {
             "NotRun without hierarchy evidence is kept"
         )
 
-        expect(ObserveNormalization.hasLiveApplication(in: "Application, pid: 62609, label: 'Lift Planner'"), "pid evidence")
+        expect(ObserveNormalization.hasLiveApplication(in: "Application, pid: 62609, label: 'MyApp'"), "pid evidence")
         expect(!ObserveNormalization.hasLiveApplication(in: "Application, pid: 0, label: 'None'"), "pid 0 is not live")
 
         if failures.isEmpty {
