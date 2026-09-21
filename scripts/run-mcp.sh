@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Cursor splits `command` on spaces, so this script is launched via:
+# Some MCP clients split `command` on spaces, so this script is launched via:
 #   command: /bin/bash
 #   args: ["…/Device Automator/scripts/run-mcp.sh"]
 #
