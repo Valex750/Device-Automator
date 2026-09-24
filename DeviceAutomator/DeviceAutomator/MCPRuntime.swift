@@ -178,7 +178,7 @@ enum MCPRuntime {
         ),
         tool(
             "tap",
-            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels).",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. the Spacer gap at the center of a .plain-style List row Button, or a row hidden under the NavigationBar): tap the row's StaticText/Image child hitPoint instead of retrying.",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),

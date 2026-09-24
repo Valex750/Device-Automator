@@ -208,6 +208,21 @@ Then `tap` `x: 364` `y: 84`. Report those three lines. **Do not** open either PN
 
 Wrong: opening `screenshotPath` "to see the UI," then guessing a tap. `observe` always attaches PNGs; that is not permission to open them.
 
+### A tap that changed nothing: tap the child's hitPoint
+
+Device Automator never dedups, debounces, or caches taps. Every `tap` is sent to Xcode as a fresh touch, including repeats at the same point. If the new hierarchy shows no change, the point you tapped is not hit-testable in the app. Tapping it again will not help.
+
+This often happens with SwiftUI `List` rows built as `Button { HStack { Image; Text; Spacer() } }.buttonStyle(.plain)` with no `.contentShape(Rectangle())`. The row `Button`'s accessibility frame spans the whole row, so its `hitPoint` is the row center. A plain-style button only receives touches on its drawn content, and the row center usually falls in the empty `Spacer()` gap. A person tapping there gets nothing either.
+
+```
+Button, {{16.0, 436.0}, {370.0, 52.0}}, label: 'Wave Charge', hitPoint: {201.0, 462.0}      ← row center, dead space
+ StaticText, {{68.0, 451.8}, {101.3, 20.3}}, label: 'Wave Charge', hitPoint: {118.7, 462.0}  ← tap this
+```
+
+When a row-sized `Button` / `Cell` tap produces no change, tap the `hitPoint` of its `StaticText` or `Image` child instead. Mention the dead zone in your report, because real users hit it too.
+
+Also check that the `hitPoint` is not covered by chrome. After scrolling, a row can sit behind the `NavigationBar` or status bar while its `hitPoint` stays in the tree. Compare its `y` with the `NavigationBar` frame, and scroll the row into the clear area before tapping.
+
 ### PNG fallback (only after text failed)
 
 Text has **failed** only when you already searched the `.txt` and still cannot answer the check because:
