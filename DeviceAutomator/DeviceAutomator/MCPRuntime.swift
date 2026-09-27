@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.4"
+    static let version = "0.2.5"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()

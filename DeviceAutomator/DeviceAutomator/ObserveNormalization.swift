@@ -48,7 +48,8 @@ enum ObserveNormalization {
         if text.range(of: #"Application,\s*pid:\s*[1-9]"#, options: .regularExpression) != nil {
             return true
         }
-        if text.localizedCaseInsensitiveContains("hierarchyPath") {
+        // A hierarchyPath key with a non-blank value, not any mention of the word.
+        if text.range(of: #"hierarchyPath"?[ \t]*[:=][ \t]*"?[ \t]*[^\s",}]"#, options: [.regularExpression, .caseInsensitive]) != nil {
             return true
         }
         return false
@@ -63,7 +64,8 @@ enum ObserveNormalization {
     }
 
     private static func hasHierarchyEvidence(_ dict: [String: Any]) -> Bool {
-        if let path = dict["hierarchyPath"] as? String, !path.isEmpty { return true }
+        if let path = dict["hierarchyPath"] as? String,
+           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         if let hierarchy = dict["hierarchy"] as? String, hasLiveApplication(in: hierarchy) { return true }
         for nested in dict.values {
             if let nestedDict = nested as? [String: Any], hasHierarchyEvidence(nestedDict) {

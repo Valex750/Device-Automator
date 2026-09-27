@@ -489,18 +489,27 @@ enum MCPResult {
     }
 
     /// Picks the identifier of the workspace/window record that mentions `pathHint`.
-    /// With several windows open, never bind to an unrelated one: fall back to an
-    /// unmatched identifier only when the listing has exactly one candidate.
+    /// Never bind to an unrelated workspace: an unmatched identifier is used only when
+    /// the listing has exactly one candidate and no record reports a workspace path.
     static func matchingIdentifier(in result: Any, pathHint: String) -> String? {
         let keys = ["workspaceIdentifier", "tabIdentifier", "identifier"]
-        let hints = [pathHint, (pathHint as NSString).deletingLastPathComponent].filter { !$0.isEmpty }
+        let resolved = URL(fileURLWithPath: pathHint).standardizedFileURL.resolvingSymlinksInPath().path
+        let hints = Set([pathHint, resolved].flatMap { [$0, ($0 as NSString).deletingLastPathComponent] })
+            .filter { !$0.isEmpty && $0 != "/" }
         var records: [(id: String, text: String)] = []
         collectRecords(in: result, keys: keys, into: &records)
         if let match = records.first(where: { record in hints.contains { record.text.contains($0) } }) {
             return match.id
         }
+        if records.contains(where: { reportsWorkspacePath($0.text) }) {
+            return nil
+        }
         let ids = Set(records.map(\.id))
         return ids.count == 1 ? ids.first : nil
+    }
+
+    private static func reportsWorkspacePath(_ text: String) -> Bool {
+        text.contains(".xcodeproj") || text.contains(".xcworkspace") || text.localizedCaseInsensitiveContains("workspacePath")
     }
 
     /// A record is a JSON object carrying an identifier key, or one line of text output.

@@ -71,6 +71,13 @@ enum SelfTests {
         )
 
         expect(ObserveNormalization.hasLiveApplication(in: "Application, pid: 62609, label: 'MyApp'"), "pid evidence")
+        expect(!ObserveNormalization.hasLiveApplication(in: "Observe failed: missing hierarchyPath"), "a bare hierarchyPath mention is not evidence")
+        expect(!ObserveNormalization.hasLiveApplication(in: #"{"hierarchyPath":"","applicationState":"NotRun"}"#), "an empty hierarchyPath is not evidence")
+        expect(ObserveNormalization.hasLiveApplication(in: #"{"hierarchyPath" : "/tmp/h.txt"}"#), "a hierarchyPath value is evidence")
+        expect(
+            ObserveNormalization.rewrite(#"{"applicationState":"NotRun","hierarchyPath":"   "}"#).contains("NotRun"),
+            "a whitespace-only hierarchyPath keeps NotRun"
+        )
         expect(!ObserveNormalization.hasLiveApplication(in: "Application, pid: 0, label: 'None'"), "pid 0 is not live")
 
         let twoWindows = """
@@ -89,8 +96,12 @@ enum SelfTests {
             MCPResult.matchingIdentifier(
                 in: "tabIdentifier: windowtab1, workspacePath: /x/y.xcodeproj",
                 pathHint: "/Users/me/App/App.xcodeproj"
-            ) == "windowtab1",
-            "a single window is still used when the path format differs"
+            ) == nil,
+            "a single window reporting a different workspace path is rejected"
+        )
+        expect(
+            MCPResult.matchingIdentifier(in: "tabIdentifier: windowtab1", pathHint: "/Users/me/App/App.xcodeproj") == "windowtab1",
+            "a single window with no path data is still used"
         )
         let jsonWindows: [String: Any] = ["content": [["type": "text", "text": """
         {"windows":[{"tabIdentifier":"a","workspacePath":"/p/One.xcodeproj"},{"tabIdentifier":"b","workspacePath":"/p/Two/Two.xcodeproj"}]}
