@@ -50,7 +50,7 @@ Follow in order. Step 5 needs a human in a GUI and cannot be scripted.
    ```
    It does **not** need to match the identity that signs the app you will drive. Edit `SIGNING_IDENTITY="..."` near the top of `scripts/run-mcp.sh`. It must be a real identity name, not ad-hoc (`--sign -`). If the list is empty, ask the user to add their Apple ID in Xcode → Settings → Accounts, then retry.
 
-4. **Register the MCP server** ([below](#register-the-mcp-server)), then confirm `list_targets` works and that **19** tools are listed, including `reset_session`.
+4. **Register the MCP server** ([below](#register-the-mcp-server)), then confirm `list_targets` works and that **20** tools are listed, including `reset_session`.
 
 5. **Human-only approvals.** There is no CLI for these:
    - Xcode: **Settings → Intelligence → Model Context Protocol → Allow External Agents to Use Xcode Tools** → **Always**. `xcrun mcp-server status` should report permission enabled.
@@ -139,7 +139,7 @@ Do this without asking, in one MCP connection:
 2. `boot_simulator` if the device is not booted (`list_devices` for a UDID).
 3. `install_and_run` after a code change (or once at the start if the binary is stale).
 4. `observe` — search/read **only the `.txt` at `hierarchyPath`**. Ignore `screenshotPath`. Tap `hitPoint`s from matching tree lines.
-5. `tap` / `type` / `swipe` / `double_tap` / `press_button` as needed, then `observe` again. After every gesture, search the new `hierarchyPath` before doing anything else.
+5. `tap` / `type` / `swipe` / `double_tap` / `press_button` / `shake` as needed, then `observe` again. After every gesture, search the new `hierarchyPath` before doing anything else.
 6. After another code change, `install_and_run` again, then `observe` / `tap` on the **same** DeviceInteraction session.
 7. Leave the session open. Do not call `end_session` between rebuilds.
 
@@ -175,7 +175,7 @@ Cap UI fix/re-verify at **5** attempts. Same symptom twice with no new evidence:
 
 ## Text-first procedure
 
-Mandatory. After **every** `observe` / `tap` / `type` / `swipe` / `double_tap`:
+Mandatory. After **every** `observe` / `tap` / `type` / `swipe` / `double_tap` / `shake`:
 
 1. Take `hierarchyPath` from the tool JSON. It ends in `-hierarchy.txt`.
 2. Grep that file (or read it if short). Do **not** open any `.png` in the same step, even if `screenshotPath` is in the same JSON.
@@ -237,7 +237,7 @@ Then you may open `screenshotPath`. In the same message, state: the search patte
 
 The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that lack Device Interaction. Do not call it while `observe` works.
 
-## Tools (19)
+## Tools (20)
 
 | Tool | What it actually does |
 | --- | --- |
@@ -250,6 +250,7 @@ The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that l
 | `observe` | `DeviceInteractionSynthesize` with an empty command. Reuses the live session or starts a new identifier. |
 | `tap`, `double_tap`, `swipe`, `type`, `press_button` | Synthesize input, then a new hierarchy. Coordinates from the latest `hitPoint`. |
 | `tap` with `duration` | Long press: holds the touch for `duration` seconds (e.g. `tap(x: 355, y: 140, duration: 1.0)`). Use it for context menus and hold-to-confirm controls. `swipe` also takes `duration`. `double_tap` does not. |
+| `shake` | Simulator only. `simctl spawn <UDID> notifyutil -p com.apple.UIKit.SimulatorShake` (what the old Simulator Shake menu sent), then a new hierarchy. The foreground app gets `motionBegan`/`motionEnded(.motionShake)`. |
 | `set_orientation` | `devicectl` first; DeviceInteraction `orientation …` if that fails. |
 | `end_session` | Optional close. Next `observe` starts a new identifier. Do not call this between rebuilds. |
 | `reset_session` | Same close, intended for a wedged session. Does not kill Device Automator. |
@@ -349,7 +350,7 @@ install_and_run   when the daemon has NO live DeviceInteraction session
 **Live UI: observe / tap / rebuild**
 
 ```
-observe / tap / double_tap / swipe / type / press_button / set_orientation
+observe / tap / double_tap / swipe / type / press_button / shake / set_orientation
   → if daemon already has sessionKey: reuse it
   → else:
        XcodeOpenWorkspace | XcodeListWindows  → workspace/tab id

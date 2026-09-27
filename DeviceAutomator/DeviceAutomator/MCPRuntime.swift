@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.2"
+    static let version = "0.2.3"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -229,6 +229,13 @@ enum MCPRuntime {
             required: ["button"]
         ),
         tool(
+            "shake",
+            "Shake the simulator (motionShake to the foreground app, e.g. shake-to-undo or a debug menu). Simulator only. Returns a new hierarchy like the other gestures.",
+            properties: [
+                "device": stringProperty("Override device selector"),
+            ]
+        ),
+        tool(
             "set_orientation",
             "Set device orientation.",
             properties: [
@@ -343,6 +350,14 @@ enum MCPRuntime {
                 throw DeviceAutomatorError.commandFailed("Unknown button '\(button)'. Use home, power, volume_up, volume_down.")
             }
             return try synthesize("b \(token)", arguments: arguments, config: config, engine: engine)
+        case "shake":
+            // Fail before shaking if the follow-up observe has no target.
+            _ = try config.resolvedCurrent()
+            let device = try resolveDevice(arguments, config: config)
+            try engine.shake(device: device)
+            // UIKit delivers the motion event asynchronously; let it land before the dump.
+            Thread.sleep(forTimeInterval: 0.5)
+            return try synthesize("", arguments: arguments, config: config, engine: engine)
         case "set_orientation":
             let orientation = try requireString(arguments, "orientation")
             let device = try resolveDevice(arguments, config: config)

@@ -127,6 +127,16 @@ final class InteractionEngine {
         }
     }
 
+    /// Simulator only. Posts the Darwin notification the old Simulator "Shake"
+    /// menu item used; UIKit turns it into motionBegan/motionEnded(.motionShake).
+    func shake(device: String) throws {
+        let result = try ProcessRunner.xcrun([
+            "simctl", "spawn", device,
+            "notifyutil", "-p", "com.apple.UIKit.SimulatorShake",
+        ])
+        try result.throwIfFailed(label: "simctl spawn notifyutil (shake)")
+    }
+
     func setOrientation(device: String, orientation: String) throws -> String {
         let result = try ProcessRunner.xcrun([
             "devicectl", "device", "orientation", "set",
