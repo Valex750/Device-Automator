@@ -42,8 +42,11 @@ enum JSONRPC {
         guard let length else {
             throw DeviceAutomatorError.commandFailed("MCP message missing Content-Length.")
         }
+        guard length >= 0 else {
+            throw DeviceAutomatorError.commandFailed("MCP message has a negative Content-Length.")
+        }
         let bodyStart = headerEnd.upperBound
-        guard buffer.count >= bodyStart + length else { return nil }
+        guard buffer.count - bodyStart >= length else { return nil }
         let body = buffer.subdata(in: bodyStart..<(bodyStart + length))
         buffer.removeSubrange(0..<(bodyStart + length))
         return body
@@ -88,7 +91,14 @@ enum AppSupport {
     }
 
     static func derivedData(for targetName: String) throws -> URL {
-        let dir = try root().appendingPathComponent("derived/\(targetName)", isDirectory: true)
+        // Target names are free-form; keep them one path component under derived/.
+        var component = targetName.replacingOccurrences(of: "/", with: "_")
+        if component.isEmpty || component == "." || component == ".." {
+            component = "_" + component
+        }
+        let dir = try root()
+            .appendingPathComponent("derived", isDirectory: true)
+            .appendingPathComponent(component, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

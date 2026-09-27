@@ -44,11 +44,11 @@ Follow in order. Step 5 needs a human in a GUI and cannot be scripted.
    ```
    If signing fails, append `CODE_SIGN_IDENTITY=-`. That only affects this one-off build; the installed copy is re-signed in the next step.
 
-3. **Pick a stable signing identity** and put it in `scripts/run-mcp.sh`.
+3. **Pick a stable signing identity** for `scripts/run-mcp.sh`.
    ```bash
    security find-identity -v -p codesigning
    ```
-   It does **not** need to match the identity that signs the app you will drive. Edit `SIGNING_IDENTITY="..."` near the top of `scripts/run-mcp.sh`. It must be a real identity name, not ad-hoc (`--sign -`). If the list is empty, ask the user to add their Apple ID in Xcode → Settings → Accounts, then retry.
+   It does **not** need to match the identity that signs the app you will drive. By default the script uses the first valid `Apple Development` identity. To pin one, write its name to `~/Library/Application Support/DeviceAutomator/signing-identity` (or set `DEVICE_AUTOMATOR_SIGNING_IDENTITY`); nothing in the repo needs editing. It must be a real identity name, not ad-hoc (`--sign -`). If the list is empty, ask the user to add their Apple ID in Xcode → Settings → Accounts, then retry.
 
 4. **Register the MCP server** ([below](#register-the-mcp-server)), then confirm `list_targets` works and that **20** tools are listed, including `reset_session`.
 
@@ -68,13 +68,13 @@ xcrun simctl boot <watch-udid>
 
 ### Rebuilding Device Automator itself
 
-`scripts/run-mcp.sh` installs a re-signed copy to `~/Library/Application Support/DeviceAutomator/bin/DeviceAutomator` **only when that file is missing**. If it exists, it is exec'd as-is. After rebuilding Device Automator, install with `ditto` + `codesign` (same identity as `SIGNING_IDENTITY`) or delete the installed binary and relaunch MCP.
+`scripts/run-mcp.sh` installs a re-signed copy to `~/Library/Application Support/DeviceAutomator/bin/DeviceAutomator` when that file is missing, or when the newest Release build under `~/Library/Developer/Xcode/DerivedData/DeviceAutomator-*` is newer than it. Otherwise the installed copy is exec'd as-is. So after a Release rebuild, relaunching MCP picks it up; to force a reinstall, delete the installed binary and relaunch MCP.
 
 `--self-test` on the binary runs identifier / observe-normalization checks (no Xcode).
 
 ## Register the MCP server
 
-Every client needs the same three facts: a server name, `command: /bin/bash`, and `args: ["<absolute path to scripts/run-mcp.sh>"]`. The repo folder name contains a space, so the script path must be in `args`, not in `command`. Paths must be absolute and specific to this Mac.
+Every client needs the same three facts: a server name, `command: /bin/bash`, and `args: ["<absolute path to scripts/run-mcp.sh>"]`. Keep the script path in `args`, not in `command`: some clients split `command` on spaces, and the checkout path may contain one. Paths must be absolute and specific to this Mac.
 
 Generic `mcpServers` JSON (`mcp.example.json`):
 
@@ -83,7 +83,7 @@ Generic `mcpServers` JSON (`mcp.example.json`):
   "mcpServers": {
     "device-automator": {
       "command": "/bin/bash",
-      "args": ["/ABSOLUTE/PATH/TO/Device Automator/scripts/run-mcp.sh"]
+      "args": ["/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"]
     }
   }
 }
@@ -93,7 +93,7 @@ Client-specific shortcuts:
 
 | Client | How |
 | --- | --- |
-| Claude Code | `claude mcp add device-automator -- /bin/bash "/ABSOLUTE/PATH/TO/Device Automator/scripts/run-mcp.sh"` |
+| Claude Code | `claude mcp add device-automator -- /bin/bash "/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"` |
 | Cursor | Put the JSON above in `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project). |
 | Codex CLI | `~/.codex/config.toml`: `[mcp_servers.device-automator]`, `command = "/bin/bash"`, `args = ["/ABSOLUTE/PATH/…/run-mcp.sh"]` |
 | Anything else | Use the JSON block, or the client's "add stdio MCP server" UI with the same command and args. |
@@ -103,7 +103,7 @@ Reload MCP after registering. Prefer **one** registration (user *or* project, no
 Manual smoke test (proxy only; the daemon stays in the background):
 
 ```bash
-/bin/bash "/ABSOLUTE/PATH/TO/Device Automator/scripts/run-mcp.sh"
+/bin/bash "/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"
 ```
 
 ## Configure the target app

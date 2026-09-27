@@ -24,10 +24,10 @@ final class XcodeMCPClient {
 
         let input = Pipe()
         let output = Pipe()
-        let err = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = err
+        // An unread stderr pipe blocks mcpbridge once it fills; send it to the daemon log.
+        process.standardError = FileHandle.standardError
         try process.run()
 
         self.process = process
@@ -106,7 +106,7 @@ final class XcodeMCPClient {
         while Date() < deadline {
             if let line = JSONRPC.extractNDJSON(from: &buffer) {
                 let object = try JSONValue.object(from: line)
-                if let responseID = object["id"] as? Int, responseID != id {
+                guard let responseID = object["id"] as? Int, responseID == id else {
                     continue
                 }
                 return object

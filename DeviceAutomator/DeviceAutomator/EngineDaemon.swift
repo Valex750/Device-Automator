@@ -150,6 +150,11 @@ enum EngineDaemon {
         if info.version == MCPRuntime.version {
             return
         }
+        // The PID may have been reused by an unrelated process since the daemon died.
+        guard isDeviceAutomatorProcess(info.pid) else {
+            EngineLog.write("proxy: pid=\(info.pid) from engine.pid is not Device Automator; not signaling it")
+            return
+        }
         EngineLog.write("proxy: stopping stale daemon pid=\(info.pid) version=\(info.version)")
         kill(info.pid, SIGTERM)
         for _ in 0..<30 {
@@ -163,6 +168,12 @@ enum EngineDaemon {
         if let socket = try? AppSupport.engineSocket() {
             unlink(socket.path)
         }
+    }
+
+    private static func isDeviceAutomatorProcess(_ pid: Int32) -> Bool {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        return URL(fileURLWithPath: String(cString: buffer)).lastPathComponent == "DeviceAutomator"
     }
 
     private static func spawnDaemon() throws {

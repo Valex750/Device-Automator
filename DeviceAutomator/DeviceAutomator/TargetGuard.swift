@@ -4,10 +4,10 @@ enum TargetGuard {
     /// Device Automator never writes into a configured app project. Screenshots and
     /// config live under Application Support (or an explicit destination outside those trees).
     static func ensureWriteIsOutsideTargets(destination: URL, config: Config) throws {
-        let destinationPath = destination.standardizedFileURL.path
+        let destinationPath = destination.standardizedFileURL.resolvingSymlinksInPath().path
         for target in config.targets {
             guard let projectPath = target.projectPath, !projectPath.isEmpty else { continue }
-            let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
+            let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL.resolvingSymlinksInPath()
             let projectRoot = projectURL.deletingLastPathComponent().path
             if destinationPath == projectRoot
                 || destinationPath.hasPrefix(projectRoot.hasSuffix("/") ? projectRoot : projectRoot + "/")

@@ -282,13 +282,17 @@ enum MCPRuntime {
             if let scheme = JSONValue.string(arguments, "scheme") { target.scheme = scheme }
             if let bundleId = JSONValue.string(arguments, "bundle_id") { target.bundleId = bundleId }
             if let device = JSONValue.string(arguments, "device") { target.device = device }
+            let previous = try? config.resolvedCurrent()
             config.upsert(target)
             try store.save(config)
+            endSessionIfCurrentChanged(from: previous, config: config, engine: engine)
             return try toolResult(JSONValue.encodePretty(config))
         case "remove_target":
             let targetName = try requireString(arguments, "name")
+            let previous = try? config.resolvedCurrent()
             config.remove(named: targetName)
             try store.save(config)
+            endSessionIfCurrentChanged(from: previous, config: config, engine: engine)
             return try toolResult(JSONValue.encodePretty(config))
         case "list_devices":
             return try toolResult(JSONValue.encodePretty(DeviceControl.listDevices()))
@@ -377,6 +381,14 @@ enum MCPRuntime {
         }
     }
 
+    /// The live session is bound to the current target's workspace and device.
+    private static func endSessionIfCurrentChanged(from previous: AppTarget?, config: Config, engine: InteractionEngine) {
+        guard let previous else { return }
+        if (try? config.resolvedCurrent()) != previous {
+            engine.endSession(disconnectClient: false)
+        }
+    }
+
     private static func synthesize(
         _ command: String,
         arguments: [String: Any],
@@ -413,7 +425,8 @@ enum MCPRuntime {
     }
 
     private static func format(_ value: Double) -> String {
-        value.rounded() == value ? String(Int(value)) : String(value)
+        // Int(value) traps outside Int's range (e.g. 1e300).
+        value.rounded() == value && abs(value) < 1e15 ? String(Int(value)) : String(value)
     }
 
     private static func tool(
@@ -452,15 +465,15 @@ enum MCPRuntime {
     }
 
     private static func reply(id: Any?, result: Any, framing: JSONRPC.Framing, output: FileHandle) throws {
-        guard id != nil else { return }
-        try write(["jsonrpc": "2.0", "id": id as Any, "result": result], framing: framing, output: output)
+        guard let id else { return }
+        try write(["jsonrpc": "2.0", "id": id, "result": result], framing: framing, output: output)
     }
 
     private static func reply(id: Any?, error: (String, Int), framing: JSONRPC.Framing, output: FileHandle) throws {
-        guard id != nil else { return }
+        guard let id else { return }
         try write([
             "jsonrpc": "2.0",
-            "id": id as Any,
+            "id": id,
             "error": ["code": error.1, "message": error.0],
         ], framing: framing, output: output)
     }

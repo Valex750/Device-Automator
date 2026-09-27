@@ -73,6 +73,36 @@ enum SelfTests {
         expect(ObserveNormalization.hasLiveApplication(in: "Application, pid: 62609, label: 'MyApp'"), "pid evidence")
         expect(!ObserveNormalization.hasLiveApplication(in: "Application, pid: 0, label: 'None'"), "pid 0 is not live")
 
+        let twoWindows = """
+        * tabIdentifier: windowtab1, workspacePath: /Users/me/Other/Other.xcodeproj
+        * tabIdentifier: windowtab2, workspacePath: /Users/me/App/App.xcodeproj
+        """
+        expect(
+            MCPResult.matchingIdentifier(in: twoWindows, pathHint: "/Users/me/App/App.xcodeproj") == "windowtab2",
+            "workspace match uses the identifier from the matching window"
+        )
+        expect(
+            MCPResult.matchingIdentifier(in: twoWindows, pathHint: "/Users/me/Missing/Missing.xcodeproj") == nil,
+            "no match across several windows returns nil"
+        )
+        expect(
+            MCPResult.matchingIdentifier(
+                in: "tabIdentifier: windowtab1, workspacePath: /x/y.xcodeproj",
+                pathHint: "/Users/me/App/App.xcodeproj"
+            ) == "windowtab1",
+            "a single window is still used when the path format differs"
+        )
+        let jsonWindows: [String: Any] = ["content": [["type": "text", "text": """
+        {"windows":[{"tabIdentifier":"a","workspacePath":"/p/One.xcodeproj"},{"tabIdentifier":"b","workspacePath":"/p/Two/Two.xcodeproj"}]}
+        """]]]
+        expect(
+            MCPResult.matchingIdentifier(in: jsonWindows, pathHint: "/p/Two/Two.xcodeproj") == "b",
+            "JSON workspace records match per record"
+        )
+
+        var negative = Data("Content-Length: -5\r\n\r\n{}".utf8)
+        expect((try? JSONRPC.extractContentLength(from: &negative)) == nil, "negative Content-Length is rejected")
+
         if failures.isEmpty {
             FileHandle.standardOutput.write(Data("self-test: ok\n".utf8))
             return

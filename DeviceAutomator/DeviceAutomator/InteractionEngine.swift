@@ -279,7 +279,9 @@ final class InteractionEngine {
             }
         } catch {
             let text = error.localizedDescription
-            if SessionFailure.classify(text) == .identifierInUse {
+            // Any recognized session failure may have created state for this id;
+            // only fall back to StartSession when the workspace tool itself failed.
+            if SessionFailure.isRecoverableStartFailure(text) {
                 return .burned(text)
             }
             workspaceUnavailable = true
@@ -486,12 +488,49 @@ enum MCPResult {
         firstString(in: result, keys: ["interactionSessionKey", "interactSessionKey", "sessionKey", "key"])
     }
 
+    /// Picks the identifier of the workspace/window record that mentions `pathHint`.
+    /// With several windows open, never bind to an unrelated one: fall back to an
+    /// unmatched identifier only when the listing has exactly one candidate.
     static func matchingIdentifier(in result: Any, pathHint: String) -> String? {
-        let text = (try? flatten(result)) ?? ""
-        if text.contains(pathHint) || text.contains((pathHint as NSString).deletingLastPathComponent) {
-            return firstString(in: result, keys: ["workspaceIdentifier", "tabIdentifier", "identifier"]) ?? pathHint
+        let keys = ["workspaceIdentifier", "tabIdentifier", "identifier"]
+        let hints = [pathHint, (pathHint as NSString).deletingLastPathComponent].filter { !$0.isEmpty }
+        var records: [(id: String, text: String)] = []
+        collectRecords(in: result, keys: keys, into: &records)
+        if let match = records.first(where: { record in hints.contains { record.text.contains($0) } }) {
+            return match.id
         }
-        return firstString(in: result, keys: ["workspaceIdentifier", "tabIdentifier", "identifier"])
+        let ids = Set(records.map(\.id))
+        return ids.count == 1 ? ids.first : nil
+    }
+
+    /// A record is a JSON object carrying an identifier key, or one line of text output.
+    private static func collectRecords(in value: Any, keys: [String], into records: inout [(id: String, text: String)]) {
+        if let dict = value as? [String: Any] {
+            if let content = dict["content"] as? [[String: Any]] {
+                for item in content {
+                    if let text = item["text"] as? String { collectRecords(in: text, keys: keys, into: &records) }
+                }
+                return
+            }
+            if let id = keys.lazy.compactMap({ dict[$0] as? String }).first(where: { !$0.isEmpty }) {
+                records.append((id, String(describing: dict)))
+                return
+            }
+            for nested in dict.values { collectRecords(in: nested, keys: keys, into: &records) }
+        } else if let array = value as? [Any] {
+            for nested in array { collectRecords(in: nested, keys: keys, into: &records) }
+        } else if let text = value as? String {
+            if let data = text.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data),
+               json is [String: Any] || json is [Any] {
+                collectRecords(in: json, keys: keys, into: &records)
+                return
+            }
+            for line in text.split(whereSeparator: \.isNewline) {
+                let line = String(line)
+                if let id = firstString(in: line, keys: keys) { records.append((id, line)) }
+            }
+        }
     }
 
     static func firstString(in value: Any, keys: [String]) -> String? {
