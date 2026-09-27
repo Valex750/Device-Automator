@@ -37,8 +37,8 @@ Follow in order. Step 5 needs a human in a GUI and cannot be scripted.
 
 2. **Clone and build.**
    ```bash
-   git clone https://github.com/Valex750/Device-Automator.git
-   cd Device-Automator/DeviceAutomator
+   git clone https://github.com/myhrtg/Ios.device-automator.git
+   cd Ios.device-automator/DeviceAutomator
    xcodebuild -project DeviceAutomator.xcodeproj -scheme DeviceAutomator \
      -configuration Release -destination 'platform=macOS,arch=arm64' build
    ```
