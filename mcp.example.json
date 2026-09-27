@@ -3,7 +3,7 @@
     "device-automator": {
       "command": "/bin/bash",
       "args": [
-        "/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"
+        "/ABSOLUTE/PATH/TO/Device-Automator/scripts/run-mcp.sh"
       ]
     }
   }

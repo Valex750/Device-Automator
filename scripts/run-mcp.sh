@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Some MCP clients split `command` on spaces, so this script is launched via:
 #   command: /bin/bash
-#   args: ["…/Ios.device-automator/scripts/run-mcp.sh"]
+#   args: ["…/Device-Automator/scripts/run-mcp.sh"]
 #
 # Copied Development-signed Mach-Os under Application Support are killed
 # (Code Signature Invalid), so they must be re-signed after install. Re-sign

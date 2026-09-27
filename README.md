@@ -37,8 +37,8 @@ Follow in order. Step 5 needs a human in a GUI and cannot be scripted.
 
 2. **Clone and build.**
    ```bash
-   git clone https://github.com/myhrtg/Ios.device-automator.git
-   cd Ios.device-automator/DeviceAutomator
+   git clone https://github.com/Valex750/Device-Automator.git
+   cd Device-Automator/DeviceAutomator
    xcodebuild -project DeviceAutomator.xcodeproj -scheme DeviceAutomator \
      -configuration Release -destination 'platform=macOS,arch=arm64' build
    ```
@@ -83,7 +83,7 @@ Generic `mcpServers` JSON (`mcp.example.json`):
   "mcpServers": {
     "device-automator": {
       "command": "/bin/bash",
-      "args": ["/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"]
+      "args": ["/ABSOLUTE/PATH/TO/Device-Automator/scripts/run-mcp.sh"]
     }
   }
 }
@@ -93,7 +93,7 @@ Client-specific shortcuts:
 
 | Client | How |
 | --- | --- |
-| Claude Code | `claude mcp add device-automator -- /bin/bash "/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"` |
+| Claude Code | `claude mcp add device-automator -- /bin/bash "/ABSOLUTE/PATH/TO/Device-Automator/scripts/run-mcp.sh"` |
 | Cursor | Put the JSON above in `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project). |
 | Codex CLI | `~/.codex/config.toml`: `[mcp_servers.device-automator]`, `command = "/bin/bash"`, `args = ["/ABSOLUTE/PATH/…/run-mcp.sh"]` |
 | Anything else | Use the JSON block, or the client's "add stdio MCP server" UI with the same command and args. |
@@ -103,7 +103,7 @@ Reload MCP after registering. Prefer **one** registration (user *or* project, no
 Manual smoke test (proxy only; the daemon stays in the background):
 
 ```bash
-/bin/bash "/ABSOLUTE/PATH/TO/Ios.device-automator/scripts/run-mcp.sh"
+/bin/bash "/ABSOLUTE/PATH/TO/Device-Automator/scripts/run-mcp.sh"
 ```
 
 ## Configure the target app
