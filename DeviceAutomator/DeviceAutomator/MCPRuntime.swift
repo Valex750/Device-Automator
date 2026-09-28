@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.7"
+    static let version = "0.2.8"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -95,7 +95,7 @@ enum MCPRuntime {
                     "protocolVersion": requested,
                     "capabilities": ["tools": ["listChanged": true]],
                     "serverInfo": ["name": "DeviceAutomator", "version": version],
-                    "instructions": "Drive a configured iOS app like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source.",
+                    "instructions": "Drive a configured iOS app like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source. Prefer iOS shortcuts over repeated scrolling or tapping (search field, status-bar scroll-to-top, edge-swipe back, tab re-tap, clear-text button); tap, swipe, and type list them.",
                 ]
             case "ping":
                 result = [:]
@@ -178,7 +178,7 @@ enum MCPRuntime {
         ),
         tool(
             "tap",
-            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. a row hidden under the NavigationBar): tap a child StaticText/Image hitPoint instead of retrying.",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. a row hidden under the NavigationBar): tap a child StaticText/Image hitPoint instead of retrying. The returned hierarchy can be mid-animation; observe again before concluding. iOS shortcuts: to scroll the current list to the top, in portrait tap the status bar (about x 80, y 25; it is not in the tree), in landscape (no status bar) tap empty NavigationBar space, not its title or buttons; tap the selected tab bar item again to pop that tab to its root screen; duration 1 opens a context menu (tap empty space to close it).",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),
@@ -199,7 +199,7 @@ enum MCPRuntime {
         ),
         tool(
             "swipe",
-            "Swipe from one hitPoint to another.",
+            "Swipe from one hitPoint to another. iOS shortcuts: back = swipe right from the left edge (from_x 2 to about 300); row actions (Delete, Archive) = swipe a List row left (about x 340 to 120), swipe it right to close; dismiss a sheet = swipe down from its navigation bar to near the bottom. Looking for a named item in a long list? A .searchable SearchField is only in the tree when the list is at its very top, so scroll to the top (see tap) and search instead of paging.",
             properties: [
                 "from_x": numberProperty("Start X"),
                 "from_y": numberProperty("Start Y"),
@@ -212,7 +212,7 @@ enum MCPRuntime {
         ),
         tool(
             "type",
-            "Type text into the focused field. Must follow a tap that focused the field.",
+            "Type text into the focused field. Must follow a tap that focused the field. Typing does not replace existing text: to clear or replace a field's content, look for its 'Clear text' button (the X inside the field, a child of the TextField/SearchField when it has text), tap it, then type; focus stays. End the text with \\n to press Return, which submits and dismisses the keyboard. A search field's 'Close'/'Cancel' button leaves search.",
             properties: [
                 "text": stringProperty("Literal text to type"),
                 "device": stringProperty("Override device selector"),
