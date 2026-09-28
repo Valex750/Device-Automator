@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.6"
+    static let version = "0.2.7"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -173,12 +173,12 @@ enum MCPRuntime {
         ),
         tool(
             "observe",
-            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
+            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. A Button/Cell/Link/Switch whose box center is dead space (e.g. a .menu Picker or Toggle row) already has hitPoint moved onto a child; boxCenter is the original. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
             "tap",
-            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. the Spacer gap at the center of a .plain-style List row Button, or a row hidden under the NavigationBar): tap the row's StaticText/Image child hitPoint instead of retrying. A Picker with .pickerStyle(.menu) inside a List only opens from its trailing value text/chevron: the row-wide Button's center hitPoint misses it, so tap the value StaticText child (e.g. 'All Muscles') instead.",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. a row hidden under the NavigationBar): tap a child StaticText/Image hitPoint instead of retrying.",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),

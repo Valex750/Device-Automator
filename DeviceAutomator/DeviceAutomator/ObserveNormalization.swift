@@ -21,6 +21,10 @@ enum ObserveNormalization {
     static func rewriteValue(_ value: Any) -> Any {
         if var dict = value as? [String: Any] {
             dict = dict.mapValues { rewriteValue($0) }
+            if let path = dict["hierarchyPath"] as? String,
+               !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                dict["hierarchyPath"] = TapTargets.adjustFile(atPath: path)
+            }
             if shouldSuppressNotRun(in: dict) {
                 dict["applicationState"] = inferredState(in: dict)
             }
