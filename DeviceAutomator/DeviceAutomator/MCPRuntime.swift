@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.5"
+    static let version = "0.2.6"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -178,7 +178,7 @@ enum MCPRuntime {
         ),
         tool(
             "tap",
-            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. the Spacer gap at the center of a .plain-style List row Button, or a row hidden under the NavigationBar): tap the row's StaticText/Image child hitPoint instead of retrying.",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. the Spacer gap at the center of a .plain-style List row Button, or a row hidden under the NavigationBar): tap the row's StaticText/Image child hitPoint instead of retrying. A Picker with .pickerStyle(.menu) inside a List only opens from its trailing value text/chevron: the row-wide Button's center hitPoint misses it, so tap the value StaticText child (e.g. 'All Muscles') instead.",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),
