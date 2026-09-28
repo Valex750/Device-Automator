@@ -18,7 +18,7 @@ import Foundation
 /// same Window outside that container count. Sheets and menus hide what is
 /// underneath from accessibility, so their bars never cover the presenter.
 enum TapTargets {
-    static let header = "# Device Automator: a Button/Cell/Link/Switch whose box center misses all its children has hitPoint moved onto a visible child (a same-type child first); boxCenter is the original. hiddenBy marks a hitPoint under a bar or offscreen: scroll it into view before tapping.\n"
+    static let header = "# Device Automator: a Button/Cell/Link/Switch whose box center misses all its children has hitPoint moved onto a visible child (a same-type child first); boxCenter is the original. hiddenBy marks a hitPoint under a bar or offscreen, on the element and on each of its children: scroll the row into view before tapping any of them.\n"
 
     private static let adjustable: Set<String> = ["Button", "Cell", "Link", "Switch"]
     private static let bars: Set<String> = ["NavigationBar", "TabBar", "Toolbar"]

@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.9"
+    static let version = "0.2.10"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -173,12 +173,12 @@ enum MCPRuntime {
         ),
         tool(
             "observe",
-            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. A Button/Cell/Link/Switch whose box center is dead space (e.g. a .menu Picker or Toggle row) already has hitPoint moved onto a visible child; boxCenter is the original. hiddenBy: NavigationBar/TabBar/offscreen marks a hitPoint scrolled under a bar or off the window: scroll it into view before tapping. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
+            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. A Button/Cell/Link/Switch whose box center is dead space (e.g. a .menu Picker or Toggle row) already has hitPoint moved onto a visible child; boxCenter is the original. hiddenBy: NavigationBar/TabBar/offscreen marks a hitPoint scrolled under a bar or off the window, on the element and its children: scroll it into view before tapping. hierarchyPath ends in -hierarchy-taps.txt only when something was rewritten or marked; a plain -hierarchy.txt means nothing needed changing. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
             "tap",
-            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space (e.g. a row hidden under the NavigationBar): tap a child StaticText/Image hitPoint instead of retrying. The returned hierarchy can be mid-animation; observe again before concluding. iOS shortcuts: to scroll the current list to the top, in portrait tap the status bar (about x 80, y 25; it is not in the tree), in landscape (no status bar) tap empty NavigationBar space, not its title or buttons; tap the selected tab bar item again to pop that tab to its root screen; duration 1 opens a context menu (tap empty space to close it).",
+            "Tap at x,y from the latest observe hierarchy hitPoint (not screenshot pixels). Every call sends a fresh touch; repeats at the same point are never deduped. If the returned hierarchy shows no change, that point is dead space: tap a child StaticText/Image hitPoint instead of retrying. Rows under a bar are marked hiddenBy in observe; scroll them into view first. The returned hierarchy can be mid-animation; observe again before concluding. iOS shortcuts: to scroll the current list to the top, in portrait tap the status bar (about x 80, y 25; it is not in the tree), in landscape (no status bar) tap empty NavigationBar space, not its title or buttons; tap the selected tab bar item again to pop that tab to its root screen; duration 1 opens a context menu (tap empty space to close it).",
             properties: [
                 "x": numberProperty("X coordinate"),
                 "y": numberProperty("Y coordinate"),
