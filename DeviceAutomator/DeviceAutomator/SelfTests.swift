@@ -143,6 +143,52 @@ enum SelfTests {
             "only the dead-center Button and Switch are rewritten"
         )
 
+        let scrolledList = """
+         Window, {{0.0, 0.0}, {402.0, 874.0}}, hitPoint: {201.0, 437.0}
+          Toolbar, {{0.0, 0.0}, {402.0, 874.0}}, hitPoint: {201.0, 437.0}
+          Other, {{0.0, 0.0}, {402.0, 874.0}}, hitPoint: {201.0, 437.0}
+           NavigationBar, {{0.0, 62.0}, {402.0, 54.0}}, identifier: 'Exercise Library', hitPoint: {201.0, 89.0}
+            Button, {{15.9, 62.0}, {44.2, 44.0}}, identifier: 'BackButton', label: 'Back', hitPoint: {38.0, 84.0}
+           Button, {{151.0, 58.0}, {100.0, 24.0}}, label: 'Sheet Grabber', hitPoint: {201.0, 70.0}
+           ScrollView, {{0.0, 0.0}, {402.0, 874.0}}, hitPoint: {201.0, 437.0}
+            Button, {{16.0, -45.7}, {370.0, 68.0}}, label: 'Dumbbell Bench Press, Dumbbell', hitPoint: {201.0, 11.2}
+             Image, {{28.0, -33.7}, {44.0, 44.0}}, label: 'chest', hitPoint: {50.0, 5.2}
+            Button, {{16.0, 486.3}, {370.0, 68.0}}, label: 'Pec Deck, Cable', hitPoint: {201.0, 520.3}
+             Image, {{28.0, 498.3}, {44.0, 44.0}}, label: 'chest', hitPoint: {50.0, 520.3}
+            Button, {{16.0, 769.3}, {370.0, 68.0}}, label: 'Barbell Shrugs, Barbell', hitPoint: {201.0, 803.3}
+             Image, {{28.0, 781.3}, {44.0, 44.0}}, label: 'shoulders', hitPoint: {50.0, 803.3}
+            StaticText, {{84.0, 874.0}, {31.0, 13.3}}, label: 'Cable', hitPoint: {99.5, 874.5}
+           TabBar, {{0.0, 791.0}, {402.0, 83.0}}, label: 'Tab Bar', hitPoint: {201.0, 832.5}
+            Button, {{110.7, 795.0}, {95.0, 54.0}}, label: 'Exercises', hitPoint: {158.2, 822.0}
+        """
+        let scrolled = TapTargets.adjust(scrolledList).components(separatedBy: "\n")
+        expect(
+            scrolled[7].hasSuffix("hitPoint: {201.0, 11.2}, hiddenBy: NavigationBar"),
+            "a row scrolled under the NavigationBar is not moved onto a hidden child and is marked: \(scrolled[7])"
+        )
+        expect(scrolled[8].hasSuffix("hiddenBy: NavigationBar"), "a child under the NavigationBar is marked")
+        expect(
+            scrolled[9].hasSuffix("hitPoint: {50.0, 520.3}, boxCenter: {201.0, 520.3}"),
+            "a visible dead-center row still moves onto its icon: \(scrolled[9])"
+        )
+        expect(
+            scrolled[11].hasSuffix("hitPoint: {201.0, 803.3}, hiddenBy: TabBar"),
+            "a row under the TabBar keeps its hitPoint and is marked: \(scrolled[11])"
+        )
+        expect(scrolled[13].hasSuffix("hiddenBy: offscreen"), "a point below the window is offscreen: \(scrolled[13])")
+        expect(!scrolled[4].contains("hiddenBy"), "a bar's own buttons are not hidden by it")
+        expect(!scrolled[5].contains("hiddenBy"), "a non-scrolling control over the NavigationBar is not hidden")
+        expect(!scrolled[15].contains("hiddenBy"), "tab bar buttons are not hidden")
+        expect(
+            !scrolled[9].contains("hiddenBy"),
+            "a full-screen Toolbar hosting view does not count as a bar: \(scrolled[9])"
+        )
+
+        expect(EngineDaemon.isVersion("0.2.10", newerThan: "0.2.9"), "versions compare numerically")
+        expect(EngineDaemon.isVersion("0.3", newerThan: "0.2.9"), "a shorter newer version wins")
+        expect(!EngineDaemon.isVersion("0.2.8", newerThan: "0.2.9"), "an older version is not newer")
+        expect(!EngineDaemon.isVersion("0.2.9", newerThan: "0.2.9.0"), "equal versions are not newer")
+
         var negative = Data("Content-Length: -5\r\n\r\n{}".utf8)
         expect((try? JSONRPC.extractContentLength(from: &negative)) == nil, "negative Content-Length is rejected")
 

@@ -150,6 +150,13 @@ enum EngineDaemon {
         if info.version == MCPRuntime.version {
             return
         }
+        // An older binary must not stop a newer daemon other sessions are using.
+        if isVersion(info.version, newerThan: MCPRuntime.version) {
+            EngineLog.write("proxy: refusing to replace newer daemon pid=\(info.pid) version=\(info.version) with \(MCPRuntime.version)")
+            throw DeviceAutomatorError.commandFailed(
+                "Device Automator \(info.version) is already running, and this server is the older \(MCPRuntime.version). Relaunch this MCP server through scripts/run-mcp.sh (or start a new session) to use \(info.version)."
+            )
+        }
         // The PID may have been reused by an unrelated process since the daemon died.
         guard isDeviceAutomatorProcess(info.pid) else {
             EngineLog.write("proxy: pid=\(info.pid) from engine.pid is not Device Automator; not signaling it")
@@ -218,6 +225,17 @@ enum EngineDaemon {
     private static func writePID() throws {
         let url = try AppSupport.enginePID()
         try "\(getpid())\n\(MCPRuntime.version)\n".write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Compares dotted numeric versions ("0.2.10" > "0.2.9"); missing parts count as 0.
+    static func isVersion(_ lhs: String, newerThan rhs: String) -> Bool {
+        let a = lhs.split(separator: ".").map { Int($0) ?? 0 }
+        let b = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
     }
 
     private static func readPIDFile() -> (pid: Int32, version: String)? {

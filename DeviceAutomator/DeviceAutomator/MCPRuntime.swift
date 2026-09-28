@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.8"
+    static let version = "0.2.9"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -95,7 +95,7 @@ enum MCPRuntime {
                     "protocolVersion": requested,
                     "capabilities": ["tools": ["listChanged": true]],
                     "serverInfo": ["name": "DeviceAutomator", "version": version],
-                    "instructions": "Drive a configured iOS app like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source. Prefer iOS shortcuts over repeated scrolling or tapping (search field, status-bar scroll-to-top, edge-swipe back, tab re-tap, clear-text button); tap, swipe, and type list them.",
+                    "instructions": "Drive a configured iOS app like a person. After observe, Grep the .txt at hierarchyPath and tap its hitPoints. Do not Read screenshotPath unless that grep cannot answer. Reuse one DeviceInteraction session across rebuilds; do not kill DeviceAutomator or call end_session between observe/tap cycles. If a session is wedged, call reset_session. Never modify the target app source. Prefer iOS shortcuts over repeated scrolling or tapping (search field, status-bar scroll-to-top, edge-swipe back, tab re-tap, clear-text button); tap, swipe, and type list them. A tree returned right after a transition (rotation, sheet or menu dismissal, navigation) can be partial or empty: observe again before concluding.",
                 ]
             case "ping":
                 result = [:]
@@ -173,7 +173,7 @@ enum MCPRuntime {
         ),
         tool(
             "observe",
-            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. A Button/Cell/Link/Switch whose box center is dead space (e.g. a .menu Picker or Toggle row) already has hitPoint moved onto a child; boxCenter is the original. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
+            "Accessibility hierarchy (.txt). Grep/Read hierarchyPath only; tap its hitPoints. A Button/Cell/Link/Switch whose box center is dead space (e.g. a .menu Picker or Toggle row) already has hitPoint moved onto a visible child; boxCenter is the original. hiddenBy: NavigationBar/TabBar/offscreen marks a hitPoint scrolled under a bar or off the window: scroll it into view before tapping. Do not Read screenshotPath unless that grep cannot answer (missing label, or color/overlap with no tree field). Reuses the live DeviceInteraction session, or starts a new identifier after end_session. applicationState is Running when a live tree was captured.",
             properties: ["device": stringProperty("Override device selector")]
         ),
         tool(
@@ -237,7 +237,7 @@ enum MCPRuntime {
         ),
         tool(
             "set_orientation",
-            "Set device orientation.",
+            "Set device orientation. The first tree after rotating can be mid-rotation (wrong Window frame or missing elements): observe again before using its hitPoints.",
             properties: [
                 "orientation": stringProperty("portrait, portraitUpsideDown, landscapeLeft, landscapeRight, faceUp, faceDown"),
                 "device": stringProperty("Override device selector"),
