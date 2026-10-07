@@ -189,6 +189,34 @@ enum SelfTests {
         expect(!EngineDaemon.isVersion("0.2.8", newerThan: "0.2.9"), "an older version is not newer")
         expect(!EngineDaemon.isVersion("0.2.9", newerThan: "0.2.9.0"), "equal versions are not newer")
 
+        func displays(_ rows: String) -> String { #"{"result":{"displays":[\#(rows)]}}"# }
+        let coverLit = #"{"active":true,"primary":true,"uniqueId":"COVER"}"#
+        let coverOff = #"{"active":false,"primary":true,"uniqueId":"COVER"}"#
+        let innerLit = #"{"active":true,"primary":false,"uniqueId":"INNER"}"#
+        let innerOff = #"{"active":false,"primary":false,"uniqueId":"INNER"}"#
+        expect(
+            DeviceControl.parseActiveDisplayID(displays("\(coverLit),\(innerOff)")) == "COVER",
+            "a folded Duo captures the lit cover display"
+        )
+        expect(
+            DeviceControl.parseActiveDisplayID(displays("\(coverOff),\(innerLit)")) == "INNER",
+            "an unfolded Duo captures the lit inner display even when it is not primary"
+        )
+        expect(
+            DeviceControl.parseActiveDisplayID(displays("\(innerLit),\(coverLit)")) == "COVER",
+            "with two lit displays the primary wins"
+        )
+        expect(
+            DeviceControl.parseActiveDisplayID(displays("\(coverOff),\(innerOff)")) == nil,
+            "no active display leaves the choice to devicectl"
+        )
+        expect(
+            DeviceControl.parseActiveDisplayID(displays(coverLit)) == nil,
+            "a single display needs no override"
+        )
+        expect(DeviceControl.parseActiveDisplayID("not json") == nil, "malformed output falls back to devicectl")
+        expect(DeviceControl.parseActiveDisplayID(#"{"result":{}}"#) == nil, "a missing display list falls back to devicectl")
+
         var negative = Data("Content-Length: -5\r\n\r\n{}".utf8)
         expect((try? JSONRPC.extractContentLength(from: &negative)) == nil, "negative Content-Length is rejected")
 

@@ -245,7 +245,7 @@ The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that l
 | `set_target` | Selects the current app and **ends** the live DeviceInteraction session. |
 | `list_devices` | `devicectl list devices`. |
 | `boot_simulator`, `shutdown_simulator` | `simctl boot` / `shutdown`. |
-| `screenshot` | CoreDevice PNG into Application Support (or an explicit path outside target trees). |
+| `screenshot` | CoreDevice PNG into Application Support (or an explicit path outside target trees). On a multi-display device (iPhone Duo) it captures the lit display, found with `devicectl device info displays`. |
 | `install_and_run` | Build + install + launch. **Must not** start a second DeviceInteraction session. Live session → `DeviceInteractionInstallAndRun` or CLI fallback. No session → CLI only; `observe` opens the one session later. |
 | `observe` | `DeviceInteractionSynthesize` with an empty command. Reuses the live session or starts a new identifier. |
 | `tap`, `double_tap`, `swipe`, `type`, `press_button` | Synthesize input, then a new hierarchy. Coordinates from the latest `hitPoint`. |

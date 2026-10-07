@@ -27,7 +27,7 @@ final class ServerState {
 
 /// Minimal MCP server (JSON-RPC, Content-Length framing, NDJSON fallback).
 enum MCPRuntime {
-    static let version = "0.2.10"
+    static let version = "0.2.11"
 
     static func serve(from input: FileHandle, to output: FileHandle, state: ServerState) throws {
         var buffer = Data()
@@ -160,7 +160,7 @@ enum MCPRuntime {
         ),
         tool(
             "screenshot",
-            "Capture a PNG. Never writes into a target app tree.",
+            "Capture a PNG of the lit display (on a foldable, the cover or inner screen, whichever is on). Never writes into a target app tree.",
             properties: [
                 "device": stringProperty("Override device selector"),
                 "destination": stringProperty("Absolute .png path outside any target app project"),
