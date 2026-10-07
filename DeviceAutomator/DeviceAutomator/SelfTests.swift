@@ -217,6 +217,65 @@ enum SelfTests {
         expect(DeviceControl.parseActiveDisplayID("not json") == nil, "malformed output falls back to devicectl")
         expect(DeviceControl.parseActiveDisplayID(#"{"result":{}}"#) == nil, "a missing display list falls back to devicectl")
 
+        expect(FoldControl.parsePosition("closed") == 0, "closed is hinge 0")
+        expect(FoldControl.parsePosition(" Open ") == 1, "open is hinge 1, ignoring case and spaces")
+        expect(abs((FoldControl.parsePosition("book") ?? 0) - 0.5556) < 0.0001, "book is about 100 of 180 degrees")
+        expect(FoldControl.parsePosition("0.25") == 0.25, "a number in range is taken as is")
+        for bad in ["1.5", "-0.1", "nan", "inf", "wide", ""] {
+            expect(FoldControl.parsePosition(bad) == nil, "'\(bad)' is not a hinge position")
+        }
+
+        let duoJSON = #"""
+        {"result":{"displays":[
+        {"active":true,"primary":true,"uniqueId":"COVER","nativeSize":[1398,2034],"type":{"integrated":{}}},
+        {"active":false,"primary":false,"uniqueId":"INNER","nativeSize":[2007,2853],"type":{"integrated":{}}},
+        {"active":false,"primary":false,"uniqueId":"EXT","nativeSize":[1920,1080],"type":{"external":{}}}]}}
+        """#
+        let duo = DeviceControl.parseDisplays(duoJSON)
+        expect(duo.count == 3, "all display rows are parsed")
+        expect(duo.filter(\.integrated).count == 2, "external displays are not built-in")
+        expect(duo.first?.width == 1398 && duo.first?.height == 2034, "native size is parsed")
+        expect(FoldControl.litDisplayDescription(duo) == "cover (1398x2034)", "the smaller built-in display is the cover")
+        let duoInnerLit = duo.map { row -> DisplayInfo in
+            var row = row
+            row.active = row.uniqueId == "INNER"
+            return row
+        }
+        expect(FoldControl.litDisplayDescription(duoInnerLit) == "inner (2007x2853)", "the larger built-in display is the inner one")
+        expect(
+            FoldControl.litDisplayDescription(duo.map { var row = $0; row.active = false; return row }) == "none reported",
+            "no lit display is reported as such"
+        )
+        let bookMessage = FoldControl.unavailableMessage(position: "Book", target: FoldControl.bookPosition, displays: duo)
+        expect(bookMessage.contains("Requested: book (hinge 0.56)."), "a named position is echoed with its hinge value: \(bookMessage)")
+        expect(bookMessage.contains("Lit display now: cover (1398x2034)."), "the lit display is reported")
+        expect(bookMessage.contains("Nothing was changed."), "the message says nothing changed")
+        expect(
+            FoldControl.unavailableMessage(position: "0.3", target: 0.3, displays: duo).contains("Requested: hinge 0.30."),
+            "a numeric position is echoed as a hinge value"
+        )
+        expect(
+            FoldControl.unavailableMessage(position: nil, target: nil, displays: duo).contains("Requested: swap to the other display."),
+            "no position means swap displays"
+        )
+        expect(
+            FoldControl.notFoldableMessage(device: "X", displays: []).contains("could not list the displays"),
+            "an unreadable display list is explained"
+        )
+        expect(
+            FoldControl.notFoldableMessage(device: "X", displays: [duo[0]]).contains("not a foldable"),
+            "a single-display device is not a foldable"
+        )
+        do {
+            _ = try FoldControl.setFold(device: "no-such-device", position: "sideways")
+            expect(false, "an invalid position must throw")
+        } catch {
+            expect(
+                error.localizedDescription.hasPrefix("Invalid position 'sideways'."),
+                "an invalid position is rejected before any device call: \(error.localizedDescription)"
+            )
+        }
+
         var negative = Data("Content-Length: -5\r\n\r\n{}".utf8)
         expect((try? JSONRPC.extractContentLength(from: &negative)) == nil, "negative Content-Length is rejected")
 

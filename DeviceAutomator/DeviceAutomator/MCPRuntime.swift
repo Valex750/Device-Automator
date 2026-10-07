@@ -245,6 +245,14 @@ enum MCPRuntime {
             required: ["orientation"]
         ),
         tool(
+            "set_fold",
+            "Fold, unfold, or partly open a foldable simulator (iPhone Duo). Currently always fails and changes nothing: nothing available to automation can move the hinge, because SpringBoard's fold service accepts Apple-internal callers only. It checks the arguments and the device, then reports which display is lit (cover or inner) and why it cannot proceed. Do not retry: ask the user to move the hinge; screenshot follows the lit display.",
+            properties: [
+                "position": stringProperty("closed, book (about 100 degrees), open, or a hinge position from 0.0 to 1.0. Omit to swap to the other display."),
+                "device": stringProperty("Override device selector"),
+            ]
+        ),
+        tool(
             "end_session",
             "Close the DeviceInteraction session. Optional during a coding loop — leave it open across rebuilds. The next observe/tap starts a new identifier automatically. Prefer reset_session if the session is wedged."
         ),
@@ -370,6 +378,9 @@ enum MCPRuntime {
             } catch {
                 return try synthesize("orientation \(orientation)", arguments: arguments, config: config, engine: engine)
             }
+        case "set_fold":
+            let device = try resolveDevice(arguments, config: config)
+            return toolResult(try FoldControl.setFold(device: device, position: JSONValue.string(arguments, "position")))
         case "end_session":
             engine.endSession(disconnectClient: false)
             return toolResult("Device interaction session closed. The next observe/tap will start a new session identifier. Leave the session open across rebuilds when you can.")

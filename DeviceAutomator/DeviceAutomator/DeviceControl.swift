@@ -11,6 +11,16 @@ struct DeviceSummary: Codable, Sendable {
     var transport: String?
 }
 
+/// One row of `devicectl device info displays`.
+struct DisplayInfo: Equatable, Sendable {
+    var uniqueId: String
+    var width: Int?
+    var height: Int?
+    var active: Bool
+    var primary: Bool
+    var integrated: Bool
+}
+
 enum DeviceControl {
     static func listDevices() throws -> [DeviceSummary] {
         let result = try ProcessRunner.xcrun([
@@ -45,6 +55,11 @@ enum DeviceControl {
     /// The display to capture on a multi-display device (iPhone Duo): the one that is lit.
     /// nil leaves the choice to devicectl (one display, query failed, or none reports active).
     static func activeDisplayID(device: String) -> String? {
+        activeDisplay(in: displays(device: device))?.uniqueId
+    }
+
+    /// Empty when the query fails, so callers fall back instead of erroring.
+    static func displays(device: String) -> [DisplayInfo] {
         guard let result = try? ProcessRunner.xcrun([
             "devicectl", "device", "info", "displays",
             "--device", device,
@@ -52,22 +67,41 @@ enum DeviceControl {
             "--quiet",
             "--timeout", "10",
         ]), result.succeeded else {
-            return nil
+            return []
         }
-        return parseActiveDisplayID(result.stdout)
+        return parseDisplays(result.stdout)
     }
 
     static func parseActiveDisplayID(_ json: String) -> String? {
+        activeDisplay(in: parseDisplays(json))?.uniqueId
+    }
+
+    /// The lit display, primary first if several are lit. nil with one display: nothing to choose.
+    static func activeDisplay(in displays: [DisplayInfo]) -> DisplayInfo? {
+        guard displays.count > 1 else { return nil }
+        let active = displays.filter(\.active)
+        return active.first { $0.primary } ?? active.first
+    }
+
+    static func parseDisplays(_ json: String) -> [DisplayInfo] {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let displays = (object["result"] as? [String: Any])?["displays"] as? [[String: Any]],
-              displays.count > 1
+              let rows = (object["result"] as? [String: Any])?["displays"] as? [[String: Any]]
         else {
-            return nil
+            return []
         }
-        let active = displays.filter { $0["active"] as? Bool == true }
-        let chosen = active.first { $0["primary"] as? Bool == true } ?? active.first
-        return chosen?["uniqueId"] as? String
+        return rows.compactMap { row in
+            guard let uniqueId = row["uniqueId"] as? String else { return nil }
+            let size = (row["nativeSize"] as? [NSNumber])?.map(\.intValue) ?? []
+            return DisplayInfo(
+                uniqueId: uniqueId,
+                width: size.count == 2 ? size[0] : nil,
+                height: size.count == 2 ? size[1] : nil,
+                active: row["active"] as? Bool == true,
+                primary: row["primary"] as? Bool == true,
+                integrated: (row["type"] as? [String: Any])?["integrated"] != nil
+            )
+        }
     }
 
     static func parseDeviceList(_ json: String) throws -> [DeviceSummary] {

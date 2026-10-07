@@ -237,7 +237,7 @@ Then you may open `screenshotPath`. In the same message, state: the search patte
 
 The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that lack Device Interaction. Do not call it while `observe` works.
 
-## Tools (20)
+## Tools (21)
 
 | Tool | What it actually does |
 | --- | --- |
@@ -252,6 +252,7 @@ The `screenshot` **tool** is a CoreDevice connectivity check for runtimes that l
 | `tap` with `duration` | Long press: holds the touch for `duration` seconds (e.g. `tap(x: 355, y: 140, duration: 1.0)`). Use it for context menus and hold-to-confirm controls. `swipe` also takes `duration`. `double_tap` does not. |
 | `shake` | Simulator only. `simctl spawn <UDID> notifyutil -p com.apple.UIKit.SimulatorShake` (what the old Simulator Shake menu sent), then a new hierarchy. The foreground app gets `motionBegan`/`motionEnded(.motionShake)`. |
 | `set_orientation` | `devicectl` first; DeviceInteraction `orientation …` if that fails. |
+| `set_fold` | **Always fails today, changes nothing.** Checks `position` (closed, book, open, 0.0–1.0; omit to swap displays) and that the device has two built-in displays, then reports the lit display (cover or inner) and why it cannot fold: the only hinge control is SpringBoard's private display-tool service, limited to Apple-internal callers, and the simulator refuses a self-signed tool that claims its entitlement. `simctl`, `devicectl`, DeviceInteraction commands and XCUITest have no fold option. The call site is ready for a real mechanism if Xcode adds one. |
 | `end_session` | Optional close. Next `observe` starts a new identifier. Do not call this between rebuilds. |
 | `reset_session` | Same close, intended for a wedged session. Does not kill Device Automator. |
 
